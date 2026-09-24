@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Mirada de Dios</string>
+    <string name="title_activity_main">Mirada de Dios</string>
+    <string name="package_name">com.miradadedios.app</string>
+    <string name="custom_url_scheme">com.miradadedios.app</string>
+</resources>

@@ -1,0 +1,398 @@
+import React, { useState } from 'react';
+import { 
+  X, 
+  Building2, 
+  MapPin, 
+  Key, 
+  ShieldAlert, 
+  CheckCircle, 
+  Clock, 
+  PhoneOff, 
+  AlertCircle, 
+  Plus, 
+  History, 
+  FileText,
+  DoorOpen,
+  Send,
+  Calendar,
+  UserCheck
+} from 'lucide-react';
+import { Building, Apartment, Visit, Restriction, VisitResult, ApartmentStatus } from '../types';
+
+interface DetailPanelProps {
+  building: Building | null;
+  apartments: Apartment[];
+  visits: Visit[];
+  restrictions: Restriction[];
+  onClose: () => void;
+  onRecordVisit: (data: {
+    apartmentId: string;
+    buildingId: string;
+    result: VisitResult;
+    note?: string;
+  }) => Promise<void>;
+}
+
+export const DetailPanel: React.FC<DetailPanelProps> = ({
+  building,
+  apartments,
+  visits,
+  restrictions,
+  onClose,
+  onRecordVisit
+}) => {
+  const [activeTab, setActiveTab] = useState<'UNITS' | 'HISTORY' | 'INFO'>('UNITS');
+  const [selectedApartment, setSelectedApartment] = useState<Apartment | null>(null);
+  const [visitResult, setVisitResult] = useState<VisitResult>('CONTACTED');
+  const [visitNote, setVisitNote] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!building) return null;
+
+  const handleSaveVisit = async () => {
+    if (!selectedApartment) return;
+    setIsSubmitting(true);
+    try {
+      await onRecordVisit({
+        apartmentId: selectedApartment.id,
+        buildingId: building.id,
+        result: visitResult,
+        note: visitNote.trim() ? visitNote.trim() : undefined
+      });
+      setSelectedApartment(null);
+      setVisitNote('');
+      setVisitResult('CONTACTED');
+    } catch (e) {
+      console.error('Error saving visit:', e);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const getStatusColor = (status: ApartmentStatus) => {
+    switch (status) {
+      case 'CONTACTED':
+        return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30';
+      case 'NO_ANSWER':
+        return 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30';
+      case 'ACCESS_PROBLEM':
+        return 'bg-red-500/20 text-red-300 border-red-500/40 hover:bg-red-500/30';
+      case 'PENDING':
+      case 'UNVISITED':
+      default:
+        return 'bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30';
+    }
+  };
+
+  const getStatusDot = (status: ApartmentStatus) => {
+    switch (status) {
+      case 'CONTACTED': return 'bg-emerald-400';
+      case 'NO_ANSWER': return 'bg-amber-400';
+      case 'ACCESS_PROBLEM': return 'bg-red-400';
+      default: return 'bg-blue-400';
+    }
+  };
+
+  const getAccessLabel = (type: Building['accessType']) => {
+    switch (type) {
+      case 'INTERCOM': return 'Intercomunicador';
+      case 'GUARD': return 'Vigilante / Recepción';
+      case 'GATE_SECURITY': return 'Portón Eléctrico / Garita';
+      case 'LOCKED': return 'Cerrado con llave';
+      case 'FREE': return 'Acceso Libre';
+      default: return 'Otro';
+    }
+  };
+
+  return (
+    <aside className="fixed top-14 right-0 bottom-12 w-96 max-w-[90vw] z-20 flex flex-col bg-slate-950/92 backdrop-blur-xl border-l border-slate-800/80 shadow-2xl text-slate-200 select-none transition-all">
+      {/* Header */}
+      <div className="p-4 border-b border-slate-800/80 flex items-start justify-between">
+        <div className="flex-1 pr-2 truncate">
+          <div className="flex items-center gap-1.5 text-xs text-teal-400 font-mono-tactical font-medium">
+            <Building2 className="w-3.5 h-3.5" />
+            <span>{getAccessLabel(building.accessType)} · {building.floors} Pisos</span>
+          </div>
+          <h2 className="text-base font-bold text-slate-100 truncate mt-0.5">{building.name}</h2>
+          <div className="flex items-center gap-1 text-xs text-slate-400 mt-0.5 truncate">
+            <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="truncate">{building.address}</span>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+          title="Cerrar panel"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Restrictions / Alerts Banner */}
+      {restrictions.length > 0 && (
+        <div className="mx-3 mt-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
+          <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <div className="font-semibold text-amber-300">Restricción activa:</div>
+            {restrictions.map(r => (
+              <div key={r.id} className="text-[11px] text-amber-200/90 mt-0.5">
+                • {r.description}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex items-center border-b border-slate-800 px-3 pt-2 text-xs font-medium gap-1">
+        <button
+          onClick={() => setActiveTab('UNITS')}
+          className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
+            activeTab === 'UNITS'
+              ? 'border-teal-400 text-teal-300 font-semibold'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <DoorOpen className="w-3.5 h-3.5" />
+          <span>Apartamentos ({apartments.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('HISTORY')}
+          className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
+            activeTab === 'HISTORY'
+              ? 'border-teal-400 text-teal-300 font-semibold'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <History className="w-3.5 h-3.5" />
+          <span>Historial ({visits.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('INFO')}
+          className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
+            activeTab === 'INFO'
+              ? 'border-teal-400 text-teal-300 font-semibold'
+              : 'border-transparent text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <FileText className="w-3.5 h-3.5" />
+          <span>Detalles</span>
+        </button>
+      </div>
+
+      {/* Tab Body */}
+      <div className="flex-1 overflow-y-auto p-3">
+        {activeTab === 'UNITS' && (
+          <div className="space-y-4">
+            {/* Quick Status Legend */}
+            <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-slate-900/60 border border-slate-800/80 text-[11px] font-mono-tactical">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Contactado</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Sin resp.</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" /> Pendiente</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400" /> Acceso imp.</span>
+            </div>
+
+            {/* Apartment Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {apartments.map(apt => (
+                <button
+                  key={apt.id}
+                  onClick={() => setSelectedApartment(apt)}
+                  className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all ${
+                    selectedApartment?.id === apt.id
+                      ? 'ring-2 ring-teal-400 bg-teal-500/30 border-teal-400'
+                      : getStatusColor(apt.calculatedStatus)
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs font-mono-tactical">{apt.unitNumber}</span>
+                    <span className={`w-2 h-2 rounded-full ${getStatusDot(apt.calculatedStatus)}`} />
+                  </div>
+                  <div className="text-[10px] opacity-80 mt-1">
+                    Piso {apt.floor}
+                  </div>
+                  <div className="text-[9px] font-mono-tactical opacity-75 mt-0.5 truncate">
+                    {apt.lastVisitedAt ? new Date(apt.lastVisitedAt).toLocaleDateString('es-DO') : 'Sin visita'}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Visit Registration Form (Slide-in or inline when an apartment is selected) */}
+            {selectedApartment && (
+              <div className="mt-4 p-3.5 rounded-xl bg-slate-900 border border-teal-500/40 shadow-xl space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-teal-300">
+                    <UserCheck className="w-4 h-4 text-teal-400" />
+                    <span>Registrar Visita · Apto {selectedApartment.unitNumber}</span>
+                  </div>
+                  <button
+                    onClick={() => setSelectedApartment(null)}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Result Selector */}
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-300 mb-1.5">
+                    Resultado del intento:
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setVisitResult('CONTACTED')}
+                      className={`p-2 rounded-lg border text-left font-medium transition-all ${
+                        visitResult === 'CONTACTED'
+                          ? 'bg-emerald-500/30 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      🟢 Contactado
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setVisitResult('NO_ANSWER')}
+                      className={`p-2 rounded-lg border text-left font-medium transition-all ${
+                        visitResult === 'NO_ANSWER'
+                          ? 'bg-amber-500/30 border-amber-500 text-amber-200 ring-1 ring-amber-500'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      🟠 Sin respuesta
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setVisitResult('ACCESS_PROBLEM')}
+                      className={`p-2 rounded-lg border text-left font-medium transition-all ${
+                        visitResult === 'ACCESS_PROBLEM'
+                          ? 'bg-red-500/30 border-red-500 text-red-200 ring-1 ring-red-500'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      🔴 Problema acceso
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setVisitResult('REFUSED')}
+                      className={`p-2 rounded-lg border text-left font-medium transition-all ${
+                        visitResult === 'REFUSED'
+                          ? 'bg-purple-500/30 border-purple-500 text-purple-200 ring-1 ring-purple-500'
+                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      ⛔ Rechazado
+                    </button>
+                  </div>
+                </div>
+
+                {/* Note input */}
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                    Nota operativa (opcional):
+                  </label>
+                  <textarea
+                    value={visitNote}
+                    onChange={(e) => setVisitNote(e.target.value)}
+                    rows={2}
+                    placeholder="Ej. Conversación breve, recomendó volver tarde..."
+                    className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 focus:border-teal-500 text-xs text-slate-200 placeholder-slate-600 focus:outline-none"
+                  />
+                </div>
+
+                {/* Submit button */}
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={handleSaveVisit}
+                  className="w-full py-2 px-3 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 font-semibold text-xs text-white flex items-center justify-center gap-1.5 shadow-lg shadow-teal-900/30 transition-all"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isSubmitting ? 'Guardando...' : 'Registrar Visita (Inmutable)'}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'HISTORY' && (
+          <div className="space-y-2.5">
+            {visits.length === 0 ? (
+              <div className="text-center py-8 text-xs text-slate-500">
+                Aún no hay visitas registradas para este edificio.
+              </div>
+            ) : (
+              visits.map(v => (
+                <div key={v.id} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-slate-200">
+                      {v.result === 'CONTACTED' && '🟢 Contactado'}
+                      {v.result === 'NO_ANSWER' && '🟠 Sin respuesta'}
+                      {v.result === 'ACCESS_PROBLEM' && '🔴 Problema de acceso'}
+                      {v.result === 'REFUSED' && '⛔ Rechazado'}
+                      {v.result === 'NOT_HOME' && '🟡 No estaba en casa'}
+                      {v.result === 'OTHER' && '⚪ Otro'}
+                    </span>
+                    <span className="text-[10px] font-mono-tactical text-slate-400">
+                      {new Date(v.visitedAt).toLocaleString('es-DO', {
+                        dateStyle: 'short',
+                        timeStyle: 'short'
+                      })}
+                    </span>
+                  </div>
+                  {v.note && (
+                    <p className="text-[11px] text-slate-300 italic bg-slate-950/40 p-1.5 rounded">
+                      "{v.note}"
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono-tactical pt-1 border-t border-slate-800/40">
+                    <span>Usuario: {v.userId}</span>
+                    <span>Op: {v.operationId.substring(0, 14)}...</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {activeTab === 'INFO' && (
+          <div className="space-y-3 text-xs">
+            <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+              <div>
+                <span className="text-slate-400 block text-[11px]">Tipo de estructura</span>
+                <span className="font-medium text-slate-200">{building.buildingType}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">Acceso principal</span>
+                <span className="font-medium text-slate-200">{getAccessLabel(building.accessType)}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[11px]">Pisos y unidades</span>
+                <span className="font-medium text-slate-200">{building.floors} niveles · {apartments.length} unidades</span>
+              </div>
+              {building.notes && (
+                <div>
+                  <span className="text-slate-400 block text-[11px]">Instrucciones / Notas</span>
+                  <p className="text-slate-300 mt-0.5">{building.notes}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 font-mono-tactical text-[11px] space-y-1 text-slate-400">
+              <div className="text-slate-300 font-bold uppercase">Georreferencia Santo Domingo:</div>
+              <div>Lat: {building.center[1].toFixed(6)}° N</div>
+              <div>Lon: {building.center[0].toFixed(6)}° W</div>
+              <div>ID: {building.id}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+};

@@ -1,0 +1,14 @@
+{
+  "appId": "com.miradadedios.app",
+  "appName": "Mirada de Dios",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#070a12"
+    }
+  }
+}

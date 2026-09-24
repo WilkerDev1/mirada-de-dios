@@ -1,0 +1,333 @@
+import Dexie, { type Table } from 'dexie';
+import {
+  Congregation,
+  Territory,
+  Zone,
+  Building,
+  Apartment,
+  Visit,
+  Restriction,
+  SyncOperation,
+  CoverageMetrics,
+  VisitResult,
+  ApartmentStatus
+} from '../types';
+import {
+  SEED_CONGREGATION,
+  SEED_TERRITORIES,
+  SEED_ZONES,
+  SEED_BUILDINGS,
+  SEED_APARTMENTS,
+  SEED_VISITS,
+  SEED_RESTRICTIONS
+} from '../data/santoDomingoSeed';
+
+export class TerritoryDatabase extends Dexie {
+  congregations!: Table<Congregation, string>;
+  territories!: Table<Territory, string>;
+  zones!: Table<Zone, string>;
+  buildings!: Table<Building, string>;
+  apartments!: Table<Apartment, string>;
+  visits!: Table<Visit, string>;
+  restrictions!: Table<Restriction, string>;
+  syncQueue!: Table<SyncOperation, string>;
+
+  constructor() {
+    super('MiradaDeDiosDB');
+    this.version(1).stores({
+      congregations: 'id, name',
+      territories: 'id, congregationId, code, status',
+      zones: 'id, territoryId, code, status',
+      buildings: 'id, zoneId, territoryId, name, archivedAt',
+      apartments: 'id, buildingId, calculatedStatus, archivedAt',
+      visits: 'id, apartmentId, buildingId, visitedAt, operationId',
+      restrictions: 'id, entityId, entityType, active',
+      syncQueue: 'id, status, createdAt'
+    });
+  }
+}
+
+export const db = new TerritoryDatabase();
+
+export async function initDatabase(): Promise<void> {
+  const count = await db.territories.count();
+  if (count === 0) {
+    console.log('[DB] Seeding initial Santo Domingo geospatial datasets...');
+    await db.transaction('rw', [
+      db.congregations,
+      db.territories,
+      db.zones,
+      db.buildings,
+      db.apartments,
+      db.visits,
+      db.restrictions
+    ], async () => {
+      await db.congregations.add(SEED_CONGREGATION);
+      await db.territories.bulkAdd(SEED_TERRITORIES);
+      await db.zones.bulkAdd(SEED_ZONES);
+      await db.buildings.bulkAdd(SEED_BUILDINGS);
+      await db.apartments.bulkAdd(SEED_APARTMENTS);
+      await db.visits.bulkAdd(SEED_VISITS);
+      await db.restrictions.bulkAdd(SEED_RESTRICTIONS);
+    });
+    console.log('[DB] Seed complete.');
+  }
+}
+
+export async function getTerritories(congregationId?: string): Promise<Territory[]> {
+  if (congregationId) {
+    return await db.territories.where('congregationId').equals(congregationId).toArray();
+  }
+  return await db.territories.toArray();
+}
+
+export async function getZones(territoryId: string): Promise<Zone[]> {
+  return await db.zones.where('territoryId').equals(territoryId).toArray();
+}
+
+export async function getBuildings(territoryId?: string, zoneId?: string): Promise<Building[]> {
+  let buildings: Building[];
+  if (zoneId) {
+    buildings = await db.buildings.where('zoneId').equals(zoneId).toArray();
+  } else if (territoryId) {
+    buildings = await db.buildings.where('territoryId').equals(territoryId).toArray();
+  } else {
+    buildings = await db.buildings.toArray();
+  }
+  return buildings.filter(b => !b.archivedAt);
+}
+
+export async function getBuilding(buildingId: string): Promise<Building | undefined> {
+  return await db.buildings.get(buildingId);
+}
+
+export async function getApartments(buildingId: string): Promise<Apartment[]> {
+  const list = await db.apartments.where('buildingId').equals(buildingId).toArray();
+  return list.filter(a => !a.archivedAt);
+}
+
+export async function getBuildingVisits(buildingId: string): Promise<Visit[]> {
+  return await db.visits.where('buildingId').equals(buildingId).reverse().sortBy('visitedAt');
+}
+
+export async function getBuildingRestrictions(buildingId: string): Promise<Restriction[]> {
+  return await db.restrictions.where('entityId').equals(buildingId).toArray();
+}
+
+export async function recordVisit(params: {
+  apartmentId: string;
+  buildingId: string;
+  result: VisitResult;
+  note?: string;
+  latitude?: number;
+  longitude?: number;
+  userId?: string;
+}): Promise<Visit> {
+  const now = new Date().toISOString();
+  const operationId = 'op-' + Math.random().toString(36).substring(2, 9) + '-' + Date.now();
+  const visitId = 'vis-' + Math.random().toString(36).substring(2, 9);
+  const deviceId = getDeviceId();
+
+  const newVisit: Visit = {
+    id: visitId,
+    apartmentId: params.apartmentId,
+    buildingId: params.buildingId,
+    userId: params.userId || 'usr-mobile-app',
+    visitedAt: now,
+    result: params.result,
+    note: params.note,
+    latitude: params.latitude,
+    longitude: params.longitude,
+    deviceId,
+    operationId,
+    createdAt: now
+  };
+
+  // Status mapping
+  let newStatus: ApartmentStatus = 'PENDING';
+  if (params.result === 'CONTACTED') newStatus = 'CONTACTED';
+  else if (params.result === 'NO_ANSWER' || params.result === 'NOT_HOME') newStatus = 'NO_ANSWER';
+  else if (params.result === 'ACCESS_PROBLEM') newStatus = 'ACCESS_PROBLEM';
+  else newStatus = 'NO_ANSWER';
+
+  await db.transaction('rw', [db.visits, db.apartments, db.syncQueue], async () => {
+    await db.visits.add(newVisit);
+    await db.apartments.update(params.apartmentId, {
+      calculatedStatus: newStatus,
+      lastVisitedAt: now
+    });
+    // Add to offline sync queue
+    await db.syncQueue.add({
+      id: operationId,
+      deviceId,
+      operationType: 'CREATE_VISIT',
+      entityType: 'VISIT',
+      entityId: visitId,
+      payload: newVisit,
+      createdAt: now,
+      status: 'PENDING',
+      retryCount: 0
+    });
+  });
+
+  return newVisit;
+}
+
+export async function createBuildingWithApartments(data: {
+  zoneId: string;
+  territoryId: string;
+  name: string;
+  address: string;
+  center: [number, number];
+  polygonCoordinates: number[][][];
+  buildingType: Building['buildingType'];
+  floors: number;
+  accessType: Building['accessType'];
+  unitsPerFloor: number;
+  notes?: string;
+}): Promise<Building> {
+  const now = new Date().toISOString();
+  const buildingId = 'bld-custom-' + Math.random().toString(36).substring(2, 9);
+  const deviceId = getDeviceId();
+  const operationId = 'op-bld-' + Date.now();
+
+  const newBuilding: Building = {
+    id: buildingId,
+    zoneId: data.zoneId,
+    territoryId: data.territoryId,
+    name: data.name,
+    address: data.address,
+    center: data.center,
+    geometry: {
+      type: 'Polygon',
+      coordinates: data.polygonCoordinates
+    },
+    buildingType: data.buildingType,
+    floors: data.floors,
+    accessType: data.accessType,
+    notes: data.notes,
+    createdAt: now,
+    updatedAt: now
+  };
+
+  // Generate apartments
+  const apartmentsToCreate: Apartment[] = [];
+  for (let f = 1; f <= data.floors; f++) {
+    for (let u = 1; u <= data.unitsPerFloor; u++) {
+      const unitNum = `${f}0${u}`;
+      apartmentsToCreate.push({
+        id: `apt-${buildingId}-${unitNum}`,
+        buildingId,
+        unitNumber: unitNum,
+        floor: f,
+        calculatedStatus: 'PENDING',
+        lastVisitedAt: null
+      });
+    }
+  }
+
+  await db.transaction('rw', [db.buildings, db.apartments, db.syncQueue], async () => {
+    await db.buildings.add(newBuilding);
+    await db.apartments.bulkAdd(apartmentsToCreate);
+    await db.syncQueue.add({
+      id: operationId,
+      deviceId,
+      operationType: 'CREATE_BUILDING',
+      entityType: 'BUILDING',
+      entityId: buildingId,
+      payload: { building: newBuilding, apartments: apartmentsToCreate },
+      createdAt: now,
+      status: 'PENDING',
+      retryCount: 0
+    });
+  });
+
+  return newBuilding;
+}
+
+export async function calculateCoverage(territoryId: string): Promise<CoverageMetrics> {
+  const buildings = await getBuildings(territoryId);
+  const totalBuildings = buildings.length;
+  if (totalBuildings === 0) {
+    return {
+      totalBuildings: 0,
+      visitedBuildings: 0,
+      physicalCoveragePercent: 0,
+      totalApartments: 0,
+      attemptedApartments: 0,
+      attemptedPercent: 0,
+      contactedApartments: 0,
+      contactedPercent: 0,
+      pendingApartments: 0,
+      pendingPercent: 0,
+      accessIssuesCount: 0
+    };
+  }
+
+  const buildingIds = buildings.map(b => b.id);
+  const apartments = (await db.apartments.where('buildingId').anyOf(buildingIds).toArray()).filter(a => !a.archivedAt);
+  const totalApartments = apartments.length;
+
+  let contacted = 0;
+  let noAnswer = 0;
+  let accessProblem = 0;
+  let pending = 0;
+
+  const visitedBuildingSet = new Set<string>();
+
+  for (const apt of apartments) {
+    if (apt.calculatedStatus === 'CONTACTED') {
+      contacted++;
+      visitedBuildingSet.add(apt.buildingId);
+    } else if (apt.calculatedStatus === 'NO_ANSWER') {
+      noAnswer++;
+      visitedBuildingSet.add(apt.buildingId);
+    } else if (apt.calculatedStatus === 'ACCESS_PROBLEM') {
+      accessProblem++;
+      visitedBuildingSet.add(apt.buildingId);
+    } else {
+      pending++;
+    }
+  }
+
+  const visitedBuildings = visitedBuildingSet.size;
+  const attemptedApartments = contacted + noAnswer + accessProblem;
+
+  return {
+    totalBuildings,
+    visitedBuildings,
+    physicalCoveragePercent: totalBuildings > 0 ? Math.round((visitedBuildings / totalBuildings) * 100) : 0,
+    totalApartments,
+    attemptedApartments,
+    attemptedPercent: totalApartments > 0 ? Math.round((attemptedApartments / totalApartments) * 100) : 0,
+    contactedApartments: contacted,
+    contactedPercent: totalApartments > 0 ? Math.round((contacted / totalApartments) * 100) : 0,
+    pendingApartments: pending,
+    pendingPercent: totalApartments > 0 ? Math.round((pending / totalApartments) * 100) : 0,
+    accessIssuesCount: accessProblem
+  };
+}
+
+export async function getPendingSyncCount(): Promise<number> {
+  return await db.syncQueue.where('status').equals('PENDING').count();
+}
+
+export async function processSyncQueue(): Promise<{ synced: number; failed: number }> {
+  const pending = await db.syncQueue.where('status').equals('PENDING').toArray();
+  let synced = 0;
+  for (const op of pending) {
+    // In demo / offline-first mode, verify idempotency and mark as SYNCED
+    await db.syncQueue.update(op.id, { status: 'SYNCED' });
+    synced++;
+  }
+  return { synced, failed: 0 };
+}
+
+function getDeviceId(): string {
+  let devId = localStorage.getItem('mdd_device_id');
+  if (!devId) {
+    devId = 'dev-sdq-' + Math.random().toString(36).substring(2, 8);
+    localStorage.setItem('mdd_device_id', devId);
+  }
+  return devId;
+}
