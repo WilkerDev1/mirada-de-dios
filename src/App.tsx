@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   initDatabase, 
   getTerritories, 
@@ -9,6 +9,7 @@ import {
   getBuildingRestrictions, 
   recordVisit, 
   createBuildingWithApartments, 
+  createZone,
   calculateCoverage, 
   getPendingSyncCount, 
   processSyncQueue 
@@ -23,7 +24,8 @@ import {
   CoverageMetrics, 
   BaseMapStyle, 
   LayerToggles, 
-  VisitResult 
+  VisitResult,
+  DrawMode 
 } from './types';
 import { Navbar } from './components/Navbar';
 import { MapView } from './components/MapView';
@@ -33,6 +35,7 @@ import { LayerControl } from './components/LayerControl';
 import { CoverageStatusBar } from './components/CoverageStatusBar';
 import { GodsEyeHUD } from './components/GodsEyeHUD';
 import { BuildingCreationModal } from './components/BuildingCreationModal';
+import { ZoneCreationModal } from './components/ZoneCreationModal';
 
 export const App: React.FC = () => {
   const [territories, setTerritories] = useState<Territory[]>([]);
@@ -62,13 +65,18 @@ export const App: React.FC = () => {
 
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createBuildingModalOpen, setCreateBuildingModalOpen] = useState(false);
+  const [createZoneModalOpen, setCreateZoneModalOpen] = useState(false);
+  const [layerControlOpen, setLayerControlOpen] = useState(false);
   const [godsEyeMode, setGodsEyeMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-  // Map state
-  const [baseMap, setBaseMap] = useState<BaseMapStyle>('STREETS');
+  // Map state (Defaults to Google Hybrid for fresh photorealistic aerial + streets)
+  const [baseMap, setBaseMap] = useState<BaseMapStyle>('GOOGLE_HYBRID');
+  const [drawMode, setDrawMode] = useState<DrawMode>('NONE');
+  const [drawnPolygon, setDrawnPolygon] = useState<number[][][] | null>(null);
+
   const [layers, setLayers] = useState<LayerToggles>({
     territorial: true,
     buildings: true,
@@ -87,8 +95,8 @@ export const App: React.FC = () => {
   }>({
     center: [-69.8860, 18.4740],
     zoom: 16.2,
-    pitch: 45,
-    bearing: -15
+    pitch: 40,
+    bearing: -10
   });
 
   const [flyToTarget, setFlyToTarget] = useState<{
@@ -105,7 +113,7 @@ export const App: React.FC = () => {
       setTerritories(terrs);
 
       if (terrs.length > 0) {
-        const initialTerr = terrs[0]; // SD-01
+        const initialTerr = terrs[0]; // SD-01 Zona Colonial
         setActiveTerritory(initialTerr);
         await loadTerritoryData(initialTerr.id);
       }
@@ -116,7 +124,6 @@ export const App: React.FC = () => {
     loadData();
   }, []);
 
-  // Load zones, buildings, and metrics for a territory
   const loadTerritoryData = async (territoryId: string) => {
     const tZones = await getZones(territoryId);
     setZones(tZones);
@@ -124,8 +131,6 @@ export const App: React.FC = () => {
     const tBuildings = await getBuildings(territoryId);
     setBuildings(tBuildings);
 
-    // Load all apartments for these buildings
-    const bIds = tBuildings.map(b => b.id);
     const allApts: Apartment[] = [];
     for (const b of tBuildings) {
       const apts = await getApartments(b.id);
@@ -133,24 +138,21 @@ export const App: React.FC = () => {
     }
     setApartments(allApts);
 
-    // Calculate coverage
     const cov = await calculateCoverage(territoryId);
     setMetrics(cov);
   };
 
-  // Handle Territory selection
   const handleSelectTerritory = async (t: Territory) => {
     setActiveTerritory(t);
     setSelectedBuilding(null);
     await loadTerritoryData(t.id);
     setFlyToTarget({
       center: t.center,
-      zoom: 15.8,
+      zoom: 15.5,
       timestamp: Date.now()
     });
   };
 
-  // Handle Building selection
   const handleSelectBuilding = async (building: Building) => {
     setSelectedBuilding(building);
     const apts = await getApartments(building.id);
@@ -167,7 +169,6 @@ export const App: React.FC = () => {
     });
   };
 
-  // Handle Recording a Visit
   const handleRecordVisit = async (data: {
     apartmentId: string;
     buildingId: string;
@@ -181,7 +182,6 @@ export const App: React.FC = () => {
       userId: 'usr-wilker'
     });
 
-    // Refresh apartments and visits
     if (selectedBuilding) {
       const apts = await getApartments(selectedBuilding.id);
       setSelectedBuildingApartments(apts);
@@ -197,9 +197,21 @@ export const App: React.FC = () => {
     setPendingSyncCount(pending);
   };
 
-  // Handle Creating a new Building
+  // Handle map drawing completion
+  const handleCompleteDrawing = (polygon: number[][][], mode: DrawMode) => {
+    setDrawnPolygon(polygon);
+    setDrawMode('NONE');
+
+    if (mode === 'DRAW_ZONE') {
+      setCreateZoneModalOpen(true);
+    } else {
+      setCreateBuildingModalOpen(true);
+    }
+  };
+
   const handleSaveBuilding = async (data: any) => {
     const newBld = await createBuildingWithApartments(data);
+    setDrawnPolygon(null);
     if (activeTerritory) {
       await loadTerritoryData(activeTerritory.id);
     }
@@ -208,24 +220,30 @@ export const App: React.FC = () => {
     handleSelectBuilding(newBld);
   };
 
-  // Handle Sync
+  const handleSaveZone = async (data: any) => {
+    const newZone = await createZone(data);
+    setDrawnPolygon(null);
+    if (activeTerritory) {
+      await loadTerritoryData(activeTerritory.id);
+    }
+    const pending = await getPendingSyncCount();
+    setPendingSyncCount(pending);
+    handleFlyToLocation(newZone.center, 16.5);
+  };
+
   const handleTriggerSync = async () => {
     setIsSyncing(true);
     try {
-      const res = await processSyncQueue();
+      await processSyncQueue();
       const pending = await getPendingSyncCount();
       setPendingSyncCount(pending);
     } finally {
-      setTimeout(() => setIsSyncing(false), 600);
+      setTimeout(() => setIsSyncing(false), 500);
     }
   };
 
-  // Toggle specific layers
   const handleToggleLayer = (key: keyof LayerToggles) => {
-    setLayers(prev => ({
-      ...prev,
-      [key]: !prev[key]
-    }));
+    setLayers(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const handleFlyToLocation = (center: [number, number], zoom = 16.5) => {
@@ -237,8 +255,8 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-slate-950">
-      {/* Top Fixed Navbar */}
+    <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans">
+      {/* Google Maps Style Floating Search & Action Chips */}
       <Navbar
         territories={territories}
         activeTerritory={activeTerritory}
@@ -251,13 +269,15 @@ export const App: React.FC = () => {
         onTriggerSync={handleTriggerSync}
         godsEyeMode={godsEyeMode}
         onToggleGodsEyeMode={() => setGodsEyeMode(!godsEyeMode)}
-        onOpenCreateBuilding={() => setCreateModalOpen(true)}
+        onSetDrawMode={setDrawMode}
+        currentDrawMode={drawMode}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+        onOpenLayerControl={() => setLayerControlOpen(!layerControlOpen)}
       />
 
       {/* 100% Fullscreen Map Container */}
-      <main className="absolute inset-0 pt-14 pb-12 w-full h-full">
+      <main className="absolute inset-0 w-full h-full pb-11">
         <MapView
           baseMap={godsEyeMode ? 'GODS_EYE_DARK' : baseMap}
           layers={layers}
@@ -270,6 +290,9 @@ export const App: React.FC = () => {
           onSelectBuilding={handleSelectBuilding}
           onViewportChange={setMapViewport}
           flyToLocation={flyToTarget}
+          drawMode={drawMode}
+          onCompleteDrawing={handleCompleteDrawing}
+          onCancelDrawing={() => setDrawMode('NONE')}
         />
       </main>
 
@@ -283,7 +306,7 @@ export const App: React.FC = () => {
         territoryCode={activeTerritory ? activeTerritory.code : 'SD-01'}
       />
 
-      {/* Left Collapsible Territorial Tree */}
+      {/* Slide-over Territorial Tree (Folder structure) */}
       <TerritoryTree
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
@@ -294,9 +317,10 @@ export const App: React.FC = () => {
         selectedBuildingId={selectedBuilding?.id || null}
         onSelectBuilding={handleSelectBuilding}
         onFlyToZone={(z) => handleFlyToLocation(z.center, 16.5)}
+        onOpenCreateZone={() => setCreateZoneModalOpen(true)}
       />
 
-      {/* Right Slide-over Building Detail Panel */}
+      {/* Responsive Detail Panel (Bottom Sheet on Mobile, Slide-over on Desktop) */}
       <DetailPanel
         building={selectedBuilding}
         apartments={selectedBuildingApartments}
@@ -306,30 +330,57 @@ export const App: React.FC = () => {
         onRecordVisit={handleRecordVisit}
       />
 
-      {/* Bottom-left Floating Layer Control */}
+      {/* Floating Layer Control with Google Maps Styles */}
       <LayerControl
         baseMap={baseMap}
         onChangeBaseMap={setBaseMap}
         layers={layers}
         onToggleLayer={handleToggleLayer}
+        isOpen={layerControlOpen}
+        onToggleOpen={() => setLayerControlOpen(!layerControlOpen)}
       />
 
-      {/* Bottom Fixed Status & Coverage Telemetry Bar */}
+      {/* Compact Bottom Coverage & Telemetry Bar */}
       <CoverageStatusBar
         activeTerritory={activeTerritory}
         metrics={metrics}
-        onOpenCreateBuilding={() => setCreateModalOpen(true)}
+        onOpenCreateBuilding={() => {
+          setDrawnPolygon(null);
+          setCreateBuildingModalOpen(true);
+        }}
         pendingSyncCount={pendingSyncCount}
       />
 
-      {/* New Building Creation Modal */}
+      {/* Modal: Create Building (supports drawn polygon from map) */}
       <BuildingCreationModal
-        isOpen={createModalOpen}
-        onClose={() => setCreateModalOpen(false)}
+        isOpen={createBuildingModalOpen}
+        onClose={() => {
+          setCreateBuildingModalOpen(false);
+          setDrawnPolygon(null);
+        }}
         activeTerritory={activeTerritory}
         zones={zones}
         mapCenter={mapViewport.center}
+        initialPolygon={drawnPolygon}
         onSaveBuilding={handleSaveBuilding}
+      />
+
+      {/* Modal: Create Zone / Residential (with custom color) */}
+      <ZoneCreationModal
+        isOpen={createZoneModalOpen}
+        onClose={() => {
+          setCreateZoneModalOpen(false);
+          setDrawnPolygon(null);
+        }}
+        activeTerritory={activeTerritory}
+        polygonCoordinates={drawnPolygon || [[
+          [-69.8880, 18.4730],
+          [-69.8840, 18.4730],
+          [-69.8840, 18.4760],
+          [-69.8880, 18.4760],
+          [-69.8880, 18.4730]
+        ]]}
+        onSaveZone={handleSaveZone}
       />
     </div>
   );

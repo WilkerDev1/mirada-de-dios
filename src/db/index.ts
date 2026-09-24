@@ -245,6 +245,51 @@ export async function createBuildingWithApartments(data: {
   return newBuilding;
 }
 
+export async function createZone(data: {
+  territoryId: string;
+  name: string;
+  code: string;
+  color?: string;
+  center: [number, number];
+  polygonCoordinates: number[][][];
+}): Promise<Zone> {
+  const zoneId = 'zone-' + Math.random().toString(36).substring(2, 9);
+  const deviceId = getDeviceId();
+  const operationId = 'op-zn-' + Date.now();
+  const now = new Date().toISOString();
+
+  const newZone: Zone = {
+    id: zoneId,
+    territoryId: data.territoryId,
+    name: data.name,
+    code: data.code,
+    color: data.color || '#14b8a6',
+    center: data.center,
+    geometry: {
+      type: 'Polygon',
+      coordinates: data.polygonCoordinates
+    },
+    status: 'ACTIVE'
+  };
+
+  await db.transaction('rw', [db.zones, db.syncQueue], async () => {
+    await db.zones.add(newZone);
+    await db.syncQueue.add({
+      id: operationId,
+      deviceId,
+      operationType: 'CREATE_ZONE',
+      entityType: 'ZONE',
+      entityId: zoneId,
+      payload: newZone,
+      createdAt: now,
+      status: 'PENDING',
+      retryCount: 0
+    });
+  });
+
+  return newZone;
+}
+
 export async function calculateCoverage(territoryId: string): Promise<CoverageMetrics> {
   const buildings = await getBuildings(territoryId);
   const totalBuildings = buildings.length;

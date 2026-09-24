@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Building2, 
   MapPin, 
   Navigation, 
   Layers, 
-  DoorClosed, 
   Save, 
   Sparkles,
   Compass
@@ -18,6 +17,7 @@ interface BuildingCreationModalProps {
   activeTerritory: Territory | null;
   zones: Zone[];
   mapCenter: [number, number];
+  initialPolygon?: number[][][] | null;
   onSaveBuilding: (data: {
     zoneId: string;
     territoryId: string;
@@ -39,6 +39,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
   activeTerritory,
   zones,
   mapCenter,
+  initialPolygon,
   onSaveBuilding
 }) => {
   const [name, setName] = useState('');
@@ -52,6 +53,27 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
   const [coordinates, setCoordinates] = useState<[number, number]>(mapCenter);
   const [isGettingGps, setIsGettingGps] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (zones.length > 0 && !zoneId) {
+      setZoneId(zones[0].id);
+    }
+  }, [zones, zoneId]);
+
+  useEffect(() => {
+    if (initialPolygon && initialPolygon[0] && initialPolygon[0].length > 0) {
+      const ring = initialPolygon[0];
+      let sumLon = 0;
+      let sumLat = 0;
+      ring.forEach(pt => {
+        sumLon += pt[0];
+        sumLat += pt[1];
+      });
+      setCoordinates([sumLon / ring.length, sumLat / ring.length]);
+    } else {
+      setCoordinates(mapCenter);
+    }
+  }, [initialPolygon, mapCenter]);
 
   if (!isOpen) return null;
 
@@ -84,16 +106,21 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
 
     setIsSaving(true);
     try {
-      // Generate a small realistic polygon footprint centered at `coordinates`
-      const [lon, lat] = coordinates;
-      const offset = 0.0003; // ~30 meters
-      const polygonCoords: number[][][] = [[
-        [lon - offset, lat - offset / 1.5],
-        [lon + offset, lat - offset / 1.5],
-        [lon + offset, lat + offset / 1.5],
-        [lon - offset, lat + offset / 1.5],
-        [lon - offset, lat - offset / 1.5],
-      ]];
+      let polygonCoords: number[][][];
+      if (initialPolygon && initialPolygon.length > 0) {
+        polygonCoords = initialPolygon;
+      } else {
+        // Generate a small polygon footprint centered at `coordinates`
+        const [lon, lat] = coordinates;
+        const offset = 0.00025; // ~25 meters
+        polygonCoords = [[
+          [lon - offset, lat - offset / 1.5],
+          [lon + offset, lat - offset / 1.5],
+          [lon + offset, lat + offset / 1.5],
+          [lon - offset, lat + offset / 1.5],
+          [lon - offset, lat - offset / 1.5],
+        ]];
+      }
 
       await onSaveBuilding({
         zoneId,
@@ -120,7 +147,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/80 backdrop-blur-sm select-none">
-      <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-5 text-slate-100 animate-in fade-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-lg rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl p-5 text-slate-100 animate-in fade-in zoom-in-95 max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2 text-teal-300 font-bold text-base">
@@ -129,7 +156,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
           >
             <X className="w-4 h-4" />
           </button>
@@ -137,7 +164,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="mt-4 space-y-3.5 text-xs">
-          {/* Territory & Zone */}
+          {/* Territory & Residential/Zone Selection */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-slate-400 font-medium mb-1">Territorio</label>
@@ -145,19 +172,19 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
                 type="text"
                 disabled
                 value={activeTerritory ? `${activeTerritory.code} - ${activeTerritory.name}` : ''}
-                className="w-full p-2 rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 font-mono-tactical text-xs"
+                className="w-full p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 font-mono-tactical text-xs"
               />
             </div>
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Zona Territorial *</label>
+              <label className="block text-slate-300 font-medium mb-1">Residencial / Zona Asignada *</label>
               <select
                 value={zoneId}
                 onChange={(e) => setZoneId(e.target.value)}
-                className="w-full p-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
+                className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
               >
                 {zones.map(z => (
                   <option key={z.id} value={z.id}>
-                    {z.code} - {z.name}
+                    📁 {z.code} - {z.name}
                   </option>
                 ))}
               </select>
@@ -166,26 +193,26 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
 
           {/* Name & Address */}
           <div>
-            <label className="block text-slate-300 font-medium mb-1">Nombre del Edificio / Residencial *</label>
+            <label className="block text-slate-300 font-medium mb-1">Nombre del Edificio / Inmueble *</label>
             <input
               type="text"
               required
-              placeholder="Ej. Condominio Colonial Real"
+              placeholder="Ej. Torre Piantini 45 o Condominio El Conde"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full p-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
+              className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
             />
           </div>
 
           <div>
-            <label className="block text-slate-300 font-medium mb-1">Dirección completa *</label>
+            <label className="block text-slate-300 font-medium mb-1">Dirección exacta *</label>
             <input
               type="text"
               required
-              placeholder="Ej. Calle Arzobispo Meriño #120, Zona Colonial"
+              placeholder="Ej. Calle Arzobispo Meriño #105"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="w-full p-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
+              className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
             />
           </div>
 
@@ -196,7 +223,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
               <select
                 value={buildingType}
                 onChange={(e) => setBuildingType(e.target.value as BuildingType)}
-                className="w-full p-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
+                className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
               >
                 <option value="RESIDENTIAL_BUILDING">Edificio Residencial</option>
                 <option value="TOWER">Torre de Apartamentos</option>
@@ -211,7 +238,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
               <select
                 value={accessType}
                 onChange={(e) => setAccessType(e.target.value as AccessType)}
-                className="w-full p-2 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
+                className="w-full p-2.5 rounded-lg bg-slate-950 border border-slate-700 text-slate-200 text-xs focus:border-teal-500 focus:outline-none"
               >
                 <option value="INTERCOM">Intercomunicador</option>
                 <option value="GUARD">Vigilante / Garita</option>
@@ -225,7 +252,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
           {/* Floors & Units per floor */}
           <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800">
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Número de Pisos</label>
+              <label className="block text-slate-300 font-medium mb-1">Niveles / Pisos</label>
               <input
                 type="number"
                 min="1"
@@ -236,7 +263,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-slate-300 font-medium mb-1">Unidades por Piso</label>
+              <label className="block text-slate-300 font-medium mb-1">Apartamentos por Piso</label>
               <input
                 type="number"
                 min="1"
@@ -247,28 +274,37 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
               />
             </div>
             <div className="col-span-2 text-[11px] text-teal-400 font-mono-tactical">
-              ✓ Se generarán automáticamente {floors * unitsPerFloor} apartamentos estructurados.
+              ✓ Se crearán {floors * unitsPerFloor} apartamentos automáticos ({floors} pisos × {unitsPerFloor} unidades).
             </div>
           </div>
 
+          {/* Drawn Footprint Notification */}
+          {initialPolygon && (
+            <div className="p-2.5 rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-300 font-mono-tactical text-[11px]">
+              🎯 Polígono dibujado directamente en el mapa ({initialPolygon[0]?.length || 0} vértices).
+            </div>
+          )}
+
           {/* Location Picker */}
-          <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
-            <div className="flex items-center justify-between text-xs font-medium text-slate-300">
-              <span>Coordenadas en Santo Domingo</span>
-              <button
-                type="button"
-                onClick={handleGetGps}
-                disabled={isGettingGps}
-                className="flex items-center gap-1 text-[11px] text-teal-400 hover:text-teal-300 font-mono-tactical"
-              >
-                <Navigation className={`w-3 h-3 ${isGettingGps ? 'animate-spin' : ''}`} />
-                <span>{isGettingGps ? 'Capturando GPS...' : 'Usar GPS actual'}</span>
-              </button>
+          {!initialPolygon && (
+            <div className="p-3 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-xs font-medium text-slate-300">
+                <span>Coordenadas en Santo Domingo</span>
+                <button
+                  type="button"
+                  onClick={handleGetGps}
+                  disabled={isGettingGps}
+                  className="flex items-center gap-1 text-[11px] text-teal-400 hover:text-teal-300 font-mono-tactical"
+                >
+                  <Navigation className={`w-3 h-3 ${isGettingGps ? 'animate-spin' : ''}`} />
+                  <span>{isGettingGps ? 'Capturando GPS...' : 'Usar GPS actual'}</span>
+                </button>
+              </div>
+              <div className="font-mono-tactical text-[11px] text-slate-400">
+                Lon: {coordinates[0].toFixed(5)}°, Lat: {coordinates[1].toFixed(5)}°
+              </div>
             </div>
-            <div className="font-mono-tactical text-[11px] text-slate-400">
-              Lon: {coordinates[0].toFixed(5)}°, Lat: {coordinates[1].toFixed(5)}°
-            </div>
-          </div>
+          )}
 
           {/* Notes */}
           <div>
@@ -287,7 +323,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-300 transition-colors"
+              className="px-3.5 py-2 rounded-lg hover:bg-slate-800 text-slate-300 transition-colors"
             >
               Cancelar
             </button>
@@ -297,7 +333,7 @@ export const BuildingCreationModal: React.FC<BuildingCreationModalProps> = ({
               className="px-4 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 font-semibold text-white flex items-center gap-1.5 shadow-lg shadow-teal-900/40"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>{isSaving ? 'Guardando...' : 'Crear Edificio y Apartamentos'}</span>
+              <span>{isSaving ? 'Guardando...' : 'Crear Edificio'}</span>
             </button>
           </div>
         </form>

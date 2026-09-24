@@ -3,19 +3,14 @@ import {
   X, 
   Building2, 
   MapPin, 
-  Key, 
   ShieldAlert, 
-  CheckCircle, 
-  Clock, 
-  PhoneOff, 
-  AlertCircle, 
-  Plus, 
   History, 
   FileText,
   DoorOpen,
   Send,
-  Calendar,
-  UserCheck
+  UserCheck,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { Building, Apartment, Visit, Restriction, VisitResult, ApartmentStatus } from '../types';
 
@@ -46,6 +41,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   const [visitResult, setVisitResult] = useState<VisitResult>('CONTACTED');
   const [visitNote, setVisitNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isExpandedMobile, setIsExpandedMobile] = useState(true);
 
   if (!building) return null;
 
@@ -105,294 +101,306 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   };
 
   return (
-    <aside className="fixed top-14 right-0 bottom-12 w-96 max-w-[90vw] z-20 flex flex-col bg-slate-950/92 backdrop-blur-xl border-l border-slate-800/80 shadow-2xl text-slate-200 select-none transition-all">
+    <aside 
+      className={`fixed z-40 transition-all duration-300 select-none
+        /* Mobile: Bottom Sheet */
+        bottom-0 left-0 right-0 max-h-[88vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-10px_40px_rgba(0,0,0,0.6)] rounded-t-3xl flex flex-col
+        /* Desktop: Right Slide-over */
+        sm:top-14 sm:bottom-12 sm:right-0 sm:left-auto sm:w-96 sm:rounded-none sm:border-t-0 sm:border-l sm:max-h-none sm:shadow-2xl
+      `}
+    >
+      {/* Mobile Drag Handle Bar */}
+      <div 
+        onClick={() => setIsExpandedMobile(!isExpandedMobile)}
+        className="sm:hidden w-full pt-2.5 pb-1 flex flex-col items-center justify-center cursor-pointer"
+      >
+        <div className="w-12 h-1.5 rounded-full bg-slate-600" />
+      </div>
+
       {/* Header */}
-      <div className="p-4 border-b border-slate-800/80 flex items-start justify-between">
+      <div className="px-4 py-2.5 border-b border-slate-800/80 flex items-start justify-between">
         <div className="flex-1 pr-2 truncate">
           <div className="flex items-center gap-1.5 text-xs text-teal-400 font-mono-tactical font-medium">
-            <Building2 className="w-3.5 h-3.5" />
-            <span>{getAccessLabel(building.accessType)} · {building.floors} Pisos</span>
+            <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
+            <span className="truncate">{getAccessLabel(building.accessType)} · {building.floors} Pisos</span>
           </div>
           <h2 className="text-base font-bold text-slate-100 truncate mt-0.5">{building.name}</h2>
           <div className="flex items-center gap-1 text-xs text-slate-400 mt-0.5 truncate">
-            <MapPin className="w-3.5 h-3.5 flex-shrink-0" />
+            <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" />
             <span className="truncate">{building.address}</span>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-          title="Cerrar panel"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Restrictions / Alerts Banner */}
-      {restrictions.length > 0 && (
-        <div className="mx-3 mt-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
-          <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <div className="font-semibold text-amber-300">Restricción activa:</div>
-            {restrictions.map(r => (
-              <div key={r.id} className="text-[11px] text-amber-200/90 mt-0.5">
-                • {r.description}
-              </div>
-            ))}
-          </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setIsExpandedMobile(!isExpandedMobile)}
+            className="sm:hidden p-1.5 rounded-lg text-slate-400 hover:text-white"
+          >
+            {isExpandedMobile ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
+          </button>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+            title="Cerrar panel"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex items-center border-b border-slate-800 px-3 pt-2 text-xs font-medium gap-1">
-        <button
-          onClick={() => setActiveTab('UNITS')}
-          className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
-            activeTab === 'UNITS'
-              ? 'border-teal-400 text-teal-300 font-semibold'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <DoorOpen className="w-3.5 h-3.5" />
-          <span>Apartamentos ({apartments.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('HISTORY')}
-          className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
-            activeTab === 'HISTORY'
-              ? 'border-teal-400 text-teal-300 font-semibold'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <History className="w-3.5 h-3.5" />
-          <span>Historial ({visits.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('INFO')}
-          className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
-            activeTab === 'INFO'
-              ? 'border-teal-400 text-teal-300 font-semibold'
-              : 'border-transparent text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <FileText className="w-3.5 h-3.5" />
-          <span>Detalles</span>
-        </button>
       </div>
 
-      {/* Tab Body */}
-      <div className="flex-1 overflow-y-auto p-3">
-        {activeTab === 'UNITS' && (
-          <div className="space-y-4">
-            {/* Quick Status Legend */}
-            <div className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-slate-900/60 border border-slate-800/80 text-[11px] font-mono-tactical">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Contactado</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Sin resp.</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" /> Pendiente</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400" /> Acceso imp.</span>
+      {isExpandedMobile && (
+        <>
+          {/* Restrictions / Alerts Banner */}
+          {restrictions.length > 0 && (
+            <div className="mx-3 mt-2.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold text-amber-300">Restricción activa:</div>
+                {restrictions.map(r => (
+                  <div key={r.id} className="text-[11px] text-amber-200/90 mt-0.5">
+                    • {r.description}
+                  </div>
+                ))}
+              </div>
             </div>
+          )}
 
-            {/* Apartment Grid */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {apartments.map(apt => (
-                <button
-                  key={apt.id}
-                  onClick={() => setSelectedApartment(apt)}
-                  className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all ${
-                    selectedApartment?.id === apt.id
-                      ? 'ring-2 ring-teal-400 bg-teal-500/30 border-teal-400'
-                      : getStatusColor(apt.calculatedStatus)
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs font-mono-tactical">{apt.unitNumber}</span>
-                    <span className={`w-2 h-2 rounded-full ${getStatusDot(apt.calculatedStatus)}`} />
-                  </div>
-                  <div className="text-[10px] opacity-80 mt-1">
-                    Piso {apt.floor}
-                  </div>
-                  <div className="text-[9px] font-mono-tactical opacity-75 mt-0.5 truncate">
-                    {apt.lastVisitedAt ? new Date(apt.lastVisitedAt).toLocaleDateString('es-DO') : 'Sin visita'}
-                  </div>
-                </button>
-              ))}
-            </div>
+          {/* Navigation Tabs */}
+          <div className="flex items-center border-b border-slate-800 px-3 pt-1 text-xs font-medium gap-1 flex-shrink-0">
+            <button
+              onClick={() => setActiveTab('UNITS')}
+              className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
+                activeTab === 'UNITS'
+                  ? 'border-teal-400 text-teal-300 font-semibold'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <DoorOpen className="w-3.5 h-3.5" />
+              <span>Aptos ({apartments.length})</span>
+            </button>
 
-            {/* Visit Registration Form (Slide-in or inline when an apartment is selected) */}
-            {selectedApartment && (
-              <div className="mt-4 p-3.5 rounded-xl bg-slate-900 border border-teal-500/40 shadow-xl space-y-3 animate-in fade-in">
-                <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                  <div className="flex items-center gap-1.5 text-xs font-semibold text-teal-300">
-                    <UserCheck className="w-4 h-4 text-teal-400" />
-                    <span>Registrar Visita · Apto {selectedApartment.unitNumber}</span>
-                  </div>
-                  <button
-                    onClick={() => setSelectedApartment(null)}
-                    className="text-slate-400 hover:text-white"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+            <button
+              onClick={() => setActiveTab('HISTORY')}
+              className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
+                activeTab === 'HISTORY'
+                  ? 'border-teal-400 text-teal-300 font-semibold'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Historial ({visits.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('INFO')}
+              className={`px-3 py-2 border-b-2 flex items-center gap-1.5 transition-colors ${
+                activeTab === 'INFO'
+                  ? 'border-teal-400 text-teal-300 font-semibold'
+                  : 'border-transparent text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Detalles</span>
+            </button>
+          </div>
+
+          {/* Scrollable Tab Body */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {activeTab === 'UNITS' && (
+              <div className="space-y-3">
+                {/* Status Legend */}
+                <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-[10px] sm:text-[11px] font-mono-tactical">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Contactado</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Sin resp.</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" /> Pendiente</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400" /> Acceso imp.</span>
                 </div>
 
-                {/* Result Selector */}
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-300 mb-1.5">
-                    Resultado del intento:
-                  </label>
-                  <div className="grid grid-cols-2 gap-1.5 text-xs">
+                {/* Units Grid */}
+                <div className="grid grid-cols-3 sm:grid-cols-3 gap-2">
+                  {apartments.map(apt => (
                     <button
-                      type="button"
-                      onClick={() => setVisitResult('CONTACTED')}
-                      className={`p-2 rounded-lg border text-left font-medium transition-all ${
-                        visitResult === 'CONTACTED'
-                          ? 'bg-emerald-500/30 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500'
-                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
+                      key={apt.id}
+                      onClick={() => setSelectedApartment(apt)}
+                      className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all min-h-[56px] active:scale-95 ${
+                        selectedApartment?.id === apt.id
+                          ? 'ring-2 ring-teal-400 bg-teal-500/30 border-teal-400'
+                          : getStatusColor(apt.calculatedStatus)
                       }`}
                     >
-                      🟢 Contactado
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-xs font-mono-tactical">{apt.unitNumber}</span>
+                        <span className={`w-2 h-2 rounded-full ${getStatusDot(apt.calculatedStatus)}`} />
+                      </div>
+                      <div className="text-[10px] opacity-80 mt-1">
+                        Piso {apt.floor}
+                      </div>
                     </button>
+                  ))}
+                </div>
+
+                {/* Visit Registration Form (Inline Drawer) */}
+                {selectedApartment && (
+                  <div className="mt-3 p-3.5 rounded-2xl bg-slate-900 border border-teal-500/40 shadow-2xl space-y-3 animate-in fade-in">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-teal-300">
+                        <UserCheck className="w-4 h-4 text-teal-400" />
+                        <span>Registrar Visita · Apto {selectedApartment.unitNumber}</span>
+                      </div>
+                      <button
+                        onClick={() => setSelectedApartment(null)}
+                        className="text-slate-400 hover:text-white"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Result buttons */}
+                    <div className="grid grid-cols-2 gap-1.5 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setVisitResult('CONTACTED')}
+                        className={`p-2.5 rounded-xl border text-left font-medium transition-all ${
+                          visitResult === 'CONTACTED'
+                            ? 'bg-emerald-500/30 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500'
+                            : 'bg-slate-800/80 border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        🟢 Contactado
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setVisitResult('NO_ANSWER')}
+                        className={`p-2.5 rounded-xl border text-left font-medium transition-all ${
+                          visitResult === 'NO_ANSWER'
+                            ? 'bg-amber-500/30 border-amber-500 text-amber-200 ring-1 ring-amber-500'
+                            : 'bg-slate-800/80 border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        🟠 Sin respuesta
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setVisitResult('ACCESS_PROBLEM')}
+                        className={`p-2.5 rounded-xl border text-left font-medium transition-all ${
+                          visitResult === 'ACCESS_PROBLEM'
+                            ? 'bg-red-500/30 border-red-500 text-red-200 ring-1 ring-red-500'
+                            : 'bg-slate-800/80 border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        🔴 Problema acceso
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setVisitResult('REFUSED')}
+                        className={`p-2.5 rounded-xl border text-left font-medium transition-all ${
+                          visitResult === 'REFUSED'
+                            ? 'bg-purple-500/30 border-purple-500 text-purple-200 ring-1 ring-purple-500'
+                            : 'bg-slate-800/80 border-slate-700 text-slate-300'
+                        }`}
+                      >
+                        ⛔ Rechazado
+                      </button>
+                    </div>
+
+                    <textarea
+                      value={visitNote}
+                      onChange={(e) => setVisitNote(e.target.value)}
+                      rows={2}
+                      placeholder="Nota rápida de la visita (opcional)..."
+                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-teal-500 text-xs text-slate-200 placeholder-slate-600 focus:outline-none"
+                    />
 
                     <button
                       type="button"
-                      onClick={() => setVisitResult('NO_ANSWER')}
-                      className={`p-2 rounded-lg border text-left font-medium transition-all ${
-                        visitResult === 'NO_ANSWER'
-                          ? 'bg-amber-500/30 border-amber-500 text-amber-200 ring-1 ring-amber-500'
-                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
+                      disabled={isSubmitting}
+                      onClick={handleSaveVisit}
+                      className="w-full py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 font-bold text-xs text-white flex items-center justify-center gap-1.5 shadow-lg shadow-teal-900/40 transition-all active:scale-98"
                     >
-                      🟠 Sin respuesta
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setVisitResult('ACCESS_PROBLEM')}
-                      className={`p-2 rounded-lg border text-left font-medium transition-all ${
-                        visitResult === 'ACCESS_PROBLEM'
-                          ? 'bg-red-500/30 border-red-500 text-red-200 ring-1 ring-red-500'
-                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      🔴 Problema acceso
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setVisitResult('REFUSED')}
-                      className={`p-2 rounded-lg border text-left font-medium transition-all ${
-                        visitResult === 'REFUSED'
-                          ? 'bg-purple-500/30 border-purple-500 text-purple-200 ring-1 ring-purple-500'
-                          : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      ⛔ Rechazado
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{isSubmitting ? 'Guardando...' : 'Registrar Visita'}</span>
                     </button>
                   </div>
-                </div>
-
-                {/* Note input */}
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-300 mb-1">
-                    Nota operativa (opcional):
-                  </label>
-                  <textarea
-                    value={visitNote}
-                    onChange={(e) => setVisitNote(e.target.value)}
-                    rows={2}
-                    placeholder="Ej. Conversación breve, recomendó volver tarde..."
-                    className="w-full p-2 rounded-lg bg-slate-950 border border-slate-800 focus:border-teal-500 text-xs text-slate-200 placeholder-slate-600 focus:outline-none"
-                  />
-                </div>
-
-                {/* Submit button */}
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={handleSaveVisit}
-                  className="w-full py-2 px-3 rounded-lg bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 font-semibold text-xs text-white flex items-center justify-center gap-1.5 shadow-lg shadow-teal-900/30 transition-all"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>{isSubmitting ? 'Guardando...' : 'Registrar Visita (Inmutable)'}</span>
-                </button>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        {activeTab === 'HISTORY' && (
-          <div className="space-y-2.5">
-            {visits.length === 0 ? (
-              <div className="text-center py-8 text-xs text-slate-500">
-                Aún no hay visitas registradas para este edificio.
-              </div>
-            ) : (
-              visits.map(v => (
-                <div key={v.id} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-200">
-                      {v.result === 'CONTACTED' && '🟢 Contactado'}
-                      {v.result === 'NO_ANSWER' && '🟠 Sin respuesta'}
-                      {v.result === 'ACCESS_PROBLEM' && '🔴 Problema de acceso'}
-                      {v.result === 'REFUSED' && '⛔ Rechazado'}
-                      {v.result === 'NOT_HOME' && '🟡 No estaba en casa'}
-                      {v.result === 'OTHER' && '⚪ Otro'}
-                    </span>
-                    <span className="text-[10px] font-mono-tactical text-slate-400">
-                      {new Date(v.visitedAt).toLocaleString('es-DO', {
-                        dateStyle: 'short',
-                        timeStyle: 'short'
-                      })}
-                    </span>
+            {activeTab === 'HISTORY' && (
+              <div className="space-y-2">
+                {visits.length === 0 ? (
+                  <div className="text-center py-8 text-xs text-slate-500">
+                    Aún no hay visitas registradas para este edificio.
                   </div>
-                  {v.note && (
-                    <p className="text-[11px] text-slate-300 italic bg-slate-950/40 p-1.5 rounded">
-                      "{v.note}"
-                    </p>
+                ) : (
+                  visits.map(v => (
+                    <div key={v.id} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-200">
+                          {v.result === 'CONTACTED' && '🟢 Contactado'}
+                          {v.result === 'NO_ANSWER' && '🟠 Sin respuesta'}
+                          {v.result === 'ACCESS_PROBLEM' && '🔴 Problema de acceso'}
+                          {v.result === 'REFUSED' && '⛔ Rechazado'}
+                          {v.result === 'NOT_HOME' && '🟡 No estaba en casa'}
+                          {v.result === 'OTHER' && '⚪ Otro'}
+                        </span>
+                        <span className="text-[10px] font-mono-tactical text-slate-400">
+                          {new Date(v.visitedAt).toLocaleString('es-DO', {
+                            dateStyle: 'short',
+                            timeStyle: 'short'
+                          })}
+                        </span>
+                      </div>
+                      {v.note && (
+                        <p className="text-[11px] text-slate-300 italic bg-slate-950/40 p-1.5 rounded-lg">
+                          "{v.note}"
+                        </p>
+                      )}
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono-tactical pt-1 border-t border-slate-800/40">
+                        <span>Usuario: {v.userId}</span>
+                        <span>Op: {v.operationId.substring(0, 14)}...</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {activeTab === 'INFO' && (
+              <div className="space-y-3 text-xs">
+                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
+                  <div>
+                    <span className="text-slate-400 block text-[11px]">Tipo de estructura</span>
+                    <span className="font-medium text-slate-200">{building.buildingType}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[11px]">Acceso principal</span>
+                    <span className="font-medium text-slate-200">{getAccessLabel(building.accessType)}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[11px]">Pisos y unidades</span>
+                    <span className="font-medium text-slate-200">{building.floors} niveles · {apartments.length} unidades</span>
+                  </div>
+                  {building.notes && (
+                    <div>
+                      <span className="text-slate-400 block text-[11px]">Notas operativas</span>
+                      <p className="text-slate-300 mt-0.5">{building.notes}</p>
+                    </div>
                   )}
-                  <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono-tactical pt-1 border-t border-slate-800/40">
-                    <span>Usuario: {v.userId}</span>
-                    <span>Op: {v.operationId.substring(0, 14)}...</span>
-                  </div>
                 </div>
-              ))
+
+                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 font-mono-tactical text-[11px] space-y-1 text-slate-400">
+                  <div className="text-slate-300 font-bold uppercase">Georreferencia:</div>
+                  <div>Lat: {building.center[1].toFixed(6)}° N</div>
+                  <div>Lon: {building.center[0].toFixed(6)}° W</div>
+                  <div>ID: {building.id}</div>
+                </div>
+              </div>
             )}
           </div>
-        )}
-
-        {activeTab === 'INFO' && (
-          <div className="space-y-3 text-xs">
-            <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
-              <div>
-                <span className="text-slate-400 block text-[11px]">Tipo de estructura</span>
-                <span className="font-medium text-slate-200">{building.buildingType}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Acceso principal</span>
-                <span className="font-medium text-slate-200">{getAccessLabel(building.accessType)}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[11px]">Pisos y unidades</span>
-                <span className="font-medium text-slate-200">{building.floors} niveles · {apartments.length} unidades</span>
-              </div>
-              {building.notes && (
-                <div>
-                  <span className="text-slate-400 block text-[11px]">Instrucciones / Notas</span>
-                  <p className="text-slate-300 mt-0.5">{building.notes}</p>
-                </div>
-              )}
-            </div>
-
-            <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 font-mono-tactical text-[11px] space-y-1 text-slate-400">
-              <div className="text-slate-300 font-bold uppercase">Georreferencia Santo Domingo:</div>
-              <div>Lat: {building.center[1].toFixed(6)}° N</div>
-              <div>Lon: {building.center[0].toFixed(6)}° W</div>
-              <div>ID: {building.id}</div>
-            </div>
-          </div>
-        )}
-      </div>
+        </>
+      )}
     </aside>
   );
 };

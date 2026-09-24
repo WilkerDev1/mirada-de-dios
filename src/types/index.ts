@@ -66,6 +66,7 @@ export interface Zone {
   territoryId: string;
   name: string;
   code: string;
+  color?: string; // Hex color for custom residential / zone overlay
   geometry: GeoPolygon;
   center: [number, number];
   status: 'ACTIVE' | 'ARCHIVED';
@@ -127,7 +128,7 @@ export interface Restriction {
 export interface SyncOperation {
   id: string;
   deviceId: string;
-  operationType: 'CREATE_VISIT' | 'UPDATE_BUILDING' | 'CREATE_BUILDING' | 'ADD_RESTRICTION';
+  operationType: 'CREATE_VISIT' | 'UPDATE_BUILDING' | 'CREATE_BUILDING' | 'CREATE_ZONE' | 'ADD_RESTRICTION';
   entityType: string;
   entityId: string;
   payload: any;
@@ -150,7 +151,19 @@ export interface CoverageMetrics {
   accessIssuesCount: number;
 }
 
-export type BaseMapStyle = 'STREETS' | 'SATELLITE' | 'HYBRID' | 'GODS_EYE_DARK';
+export type BaseMapStyle = 
+  | 'GOOGLE_STREETS' 
+  | 'GOOGLE_HYBRID' 
+  | 'GOOGLE_SATELLITE' 
+  | 'GOOGLE_TERRAIN'
+  | 'OSM_STREETS' 
+  | 'GODS_EYE_DARK';
+
+export type DrawMode = 
+  | 'NONE' 
+  | 'DRAW_BUILDING_POLYGON' 
+  | 'DRAW_BUILDING_BOX' 
+  | 'DRAW_ZONE';
 
 export interface LayerToggles {
   territorial: boolean;
