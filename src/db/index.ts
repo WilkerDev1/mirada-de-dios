@@ -71,6 +71,15 @@ export async function initDatabase(): Promise<void> {
       await db.restrictions.bulkAdd(SEED_RESTRICTIONS);
     });
     console.log('[DB] Seed complete.');
+  } else {
+    // Ensure test buildings in unassigned territory exist even in existing installations
+    const testBld1 = await db.buildings.get('bld-test-free-01');
+    if (!testBld1) {
+      const b1 = SEED_BUILDINGS.find(b => b.id === 'bld-test-free-01');
+      const b2 = SEED_BUILDINGS.find(b => b.id === 'bld-test-free-02');
+      if (b1) await db.buildings.put(b1);
+      if (b2) await db.buildings.put(b2);
+    }
   }
 }
 

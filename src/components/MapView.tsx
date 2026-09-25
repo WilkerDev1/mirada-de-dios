@@ -1,6 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { Map, NavigationControl, GeolocateControl, StyleSpecification } from 'maplibre-gl';
-import type { FeatureCollection } from 'geojson';
 import { 
   Building, 
   Territory, 
@@ -11,7 +10,7 @@ import {
   DrawMode,
   AppMode
 } from '../types';
-import { Check, X, Undo, Box, Edit3, Compass, Sparkles } from 'lucide-react';
+import { Check, X, Undo, Box, Edit3 } from 'lucide-react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
 interface MapViewProps {
@@ -40,10 +39,51 @@ interface MapViewProps {
   onCancelDrawing: () => void;
 }
 
+// Robust helper to extract closed polygon coordinates from any GeoJSON structure (3D or 2D)
+const extractPolygonPoints = (geom: any): [number, number][] => {
+  if (!geom) return [];
+  const coords = geom.coordinates;
+  if (!coords || !Array.isArray(coords) || coords.length === 0) return [];
+  
+  let raw: any[] = [];
+  // Case 1: Standard GeoJSON Polygon [[[lon, lat], ...]] (3D array)
+  if (Array.isArray(coords[0]) && Array.isArray(coords[0][0])) {
+    raw = coords[0];
+  } 
+  // Case 2: Flattened [[lon, lat], ...] (2D array)
+  else if (Array.isArray(coords[0]) && typeof coords[0][0] === 'number') {
+    raw = coords;
+  }
+
+  const valid = raw.filter(pt => Array.isArray(pt) && pt.length >= 2 && !isNaN(pt[0]) && !isNaN(pt[1])) as [number, number][];
+  if (valid.length < 3) return [];
+
+  // Ensure closed ring
+  const first = valid[0];
+  const last = valid[valid.length - 1];
+  const result = [...valid];
+  if (first[0] !== last[0] || first[1] !== last[1]) {
+    result.push([first[0], first[1]]);
+  }
+  return result;
+};
+
+// Earth distance calculation in meters
+const getDistanceMeters = (p1: [number, number], p2: [number, number]): number => {
+  const R = 6371000;
+  const dLat = (p2[1] - p1[1]) * Math.PI / 180;
+  const dLon = (p2[0] - p1[0]) * Math.PI / 180;
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(p1[1] * Math.PI / 180) * Math.cos(p2[1] * Math.PI / 180) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+};
+
 export const MapView: React.FC<MapViewProps> = ({
   baseMap = 'GOOGLE_STREETS',
   layers,
-  appMode,
   territories,
   activeTerritory,
   zones,
@@ -64,41 +104,20 @@ export const MapView: React.FC<MapViewProps> = ({
   const mapRef = useRef<Map | null>(null);
   const currentBaseMapRef = useRef<BaseMapStyle>(baseMap);
 
-  // 3D / 2D flat mode state (Flat 2D by default!)
+  // Viewport tracking for reactive SVG re-projection
+  const [mapTransformSeq, setMapTransformSeq] = useState(0);
+  const [currentZoom, setCurrentZoom] = useState(16.5);
+  const [currentPitch, setCurrentPitch] = useState(0);
   const [is3D, setIs3D] = useState(false);
 
-  // AutoCAD-Style Interactive Drawing State
+  // AutoCAD-Style Interactive Drafting State
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
   const [activePointer, setActivePointer] = useState<{ x: number; y: number; lng: number; lat: number } | null>(null);
   const [isNearFirstPoint, setIsNearFirstPoint] = useState(false);
+  const pointerDownPosRef = useRef<{ x: number; y: number; pt: [number, number] } | null>(null);
 
   // Samsung S-Pen / Stylus state
   const [isSPenDetected, setIsSPenDetected] = useState(false);
-  const [sPenPressure, setSPenPressure] = useState(0);
-
-  // Mutable refs to prevent stale closures in MapLibre event listeners
-  const buildingsRef = useRef(buildings);
-  buildingsRef.current = buildings;
-
-  const zonesRef = useRef(zones);
-  zonesRef.current = zones;
-
-  const territoriesRef = useRef(territories);
-  territoriesRef.current = territories;
-
-  const drawModeRef = useRef(drawMode);
-  drawModeRef.current = drawMode;
-
-  const onSelectBuildingRef = useRef(onSelectBuilding);
-  onSelectBuildingRef.current = onSelectBuilding;
-
-  const onSelectZoneRef = useRef(onSelectZone);
-  onSelectZoneRef.current = onSelectZone;
-
-  const onSelectTerritoryRef = useRef(onSelectTerritory);
-  onSelectTerritoryRef.current = onSelectTerritory;
-
-  const pointerDownPosRef = useRef<{ x: number; y: number; pt: [number, number] } | null>(null);
 
   const triggerHaptic = () => {
     try {
@@ -108,41 +127,11 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   };
 
-  // Helper to ensure linear rings are strictly closed and valid for GeoJSON Polygons (>= 4 points)
-  const ensureValidPolygon = (coords: number[][]): number[][] => {
-    if (!coords || coords.length < 3) return [];
-    const valid = coords.filter(pt => Array.isArray(pt) && pt.length >= 2 && !isNaN(pt[0]) && !isNaN(pt[1]));
-    if (valid.length < 3) return [];
-    const first = valid[0];
-    const last = valid[valid.length - 1];
-    const result = [...valid];
-    if (first[0] !== last[0] || first[1] !== last[1]) {
-      result.push([first[0], first[1]]);
-    }
-    if (result.length < 4) return [];
-    return result;
-  };
-
-  // Earth distance calculation in meters
-  const getDistanceMeters = (p1: [number, number], p2: [number, number]): number => {
-    const R = 6371000;
-    const dLat = (p2[1] - p1[1]) * Math.PI / 180;
-    const dLon = (p2[0] - p1[0]) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(p1[1] * Math.PI / 180) * Math.cos(p2[1] * Math.PI / 180) * 
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return Math.round(R * c);
-  };
-
   const getStyleForBaseMap = (style: BaseMapStyle): StyleSpecification => {
-    const glyphsUrl = 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf';
     switch (style) {
       case 'GOOGLE_STREETS':
         return {
           version: 8,
-          glyphs: glyphsUrl,
           sources: {
             'base-tiles': {
               type: 'raster',
@@ -157,7 +146,6 @@ export const MapView: React.FC<MapViewProps> = ({
       case 'GOOGLE_SATELLITE':
         return {
           version: 8,
-          glyphs: glyphsUrl,
           sources: {
             'base-tiles': {
               type: 'raster',
@@ -172,7 +160,6 @@ export const MapView: React.FC<MapViewProps> = ({
       case 'GOOGLE_TERRAIN':
         return {
           version: 8,
-          glyphs: glyphsUrl,
           sources: {
             'base-tiles': {
               type: 'raster',
@@ -187,7 +174,6 @@ export const MapView: React.FC<MapViewProps> = ({
       case 'GODS_EYE_DARK':
         return {
           version: 8,
-          glyphs: glyphsUrl,
           sources: {
             'base-tiles': {
               type: 'raster',
@@ -202,7 +188,6 @@ export const MapView: React.FC<MapViewProps> = ({
       case 'OSM_STREETS':
         return {
           version: 8,
-          glyphs: glyphsUrl,
           sources: {
             'base-tiles': {
               type: 'raster',
@@ -218,7 +203,6 @@ export const MapView: React.FC<MapViewProps> = ({
       default:
         return {
           version: 8,
-          glyphs: glyphsUrl,
           sources: {
             'base-tiles': {
               type: 'raster',
@@ -232,313 +216,7 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   };
 
-  // Synchronize GeoJSON sources and layers safely without infinite reload loops
-  const syncMapLayers = useCallback(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-
-    // 1. Territories Layer
-    if (layers.territorial) {
-      const terrFeatures = territories
-        .map(t => {
-          const ring = ensureValidPolygon(t.geometry?.coordinates?.[0]);
-          if (ring.length < 4) return null;
-          return {
-            type: 'Feature' as const,
-            id: t.id,
-            properties: {
-              id: t.id,
-              name: t.name,
-              code: t.code,
-              color: t.color || '#0284c7',
-              isActive: t.id === activeTerritory?.id
-            },
-            geometry: {
-              type: 'Polygon' as const,
-              coordinates: [ring]
-            }
-          };
-        })
-        .filter(Boolean);
-
-      const territoriesGeoJson: FeatureCollection = {
-        type: 'FeatureCollection',
-        features: terrFeatures as any
-      };
-
-      try {
-        if (!map.getSource('territories-src')) {
-          map.addSource('territories-src', { type: 'geojson', data: territoriesGeoJson });
-          map.addLayer({
-            id: 'territories-fill-layer',
-            type: 'fill',
-            source: 'territories-src',
-            paint: {
-              'fill-color': ['coalesce', ['get', 'color'], '#0284c7'],
-              'fill-opacity': appMode === 'TERRITORIES' ? 0.22 : 0.08
-            }
-          });
-          map.addLayer({
-            id: 'territories-line-layer',
-            type: 'line',
-            source: 'territories-src',
-            paint: {
-              'line-color': ['coalesce', ['get', 'color'], '#0284c7'],
-              'line-width': appMode === 'TERRITORIES' ? 3.5 : 2,
-              'line-dasharray': [3, 2]
-            }
-          });
-
-          map.on('click', 'territories-fill-layer', (e: any) => {
-            if (drawModeRef.current !== 'NONE') return;
-            const m = mapRef.current;
-            if (m) {
-              const topFeatures = m.queryRenderedFeatures(e.point, {
-                layers: ['buildings-fill-layer', 'buildings-extrusion-layer', 'zones-fill-layer'].filter(l => !!m.getLayer(l))
-              });
-              if (topFeatures && topFeatures.length > 0) return;
-            }
-            const tId = e.features?.[0]?.properties?.id;
-            const targetTerr = territoriesRef.current.find(t => t.id === tId);
-            if (targetTerr && onSelectTerritoryRef.current) {
-              onSelectTerritoryRef.current(targetTerr);
-            }
-          });
-          map.on('mouseenter', 'territories-fill-layer', () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = 'pointer'; });
-          map.on('mouseleave', 'territories-fill-layer', () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = ''; });
-        } else {
-          (map.getSource('territories-src') as any).setData(territoriesGeoJson);
-          map.setPaintProperty('territories-fill-layer', 'fill-color', ['coalesce', ['get', 'color'], '#0284c7']);
-          map.setPaintProperty('territories-fill-layer', 'fill-opacity', appMode === 'TERRITORIES' ? 0.22 : 0.08);
-          map.setPaintProperty('territories-line-layer', 'line-color', ['coalesce', ['get', 'color'], '#0284c7']);
-          map.setPaintProperty('territories-line-layer', 'line-width', appMode === 'TERRITORIES' ? 3.5 : 2);
-        }
-      } catch (err) {
-        console.warn('Error syncing territories layer:', err);
-      }
-    }
-    if (map.getLayer('territories-fill-layer')) {
-      map.setLayoutProperty('territories-fill-layer', 'visibility', layers.territorial ? 'visible' : 'none');
-      map.setLayoutProperty('territories-line-layer', 'visibility', layers.territorial ? 'visible' : 'none');
-    }
-
-    // 2. Zones / Residenciales Layer
-    if (layers.territorial) {
-      const zoneFeatures = zones
-        .map(z => {
-          const ring = ensureValidPolygon(z.geometry?.coordinates?.[0]);
-          if (ring.length < 4) return null;
-          return {
-            type: 'Feature' as const,
-            id: z.id,
-            properties: {
-              id: z.id,
-              name: z.name,
-              code: z.code,
-              color: z.color || '#0d9488',
-              isSelected: z.id === selectedZone?.id
-            },
-            geometry: {
-              type: 'Polygon' as const,
-              coordinates: [ring]
-            }
-          };
-        })
-        .filter(Boolean);
-
-      const zonesGeoJson: FeatureCollection = {
-        type: 'FeatureCollection',
-        features: zoneFeatures as any
-      };
-
-      try {
-        if (!map.getSource('zones-src')) {
-          map.addSource('zones-src', { type: 'geojson', data: zonesGeoJson });
-          map.addLayer({
-            id: 'zones-fill-layer',
-            type: 'fill',
-            source: 'zones-src',
-            paint: {
-              'fill-color': ['coalesce', ['get', 'color'], '#0d9488'],
-              'fill-opacity': appMode === 'ZONES' ? 0.35 : 0.18
-            }
-          });
-          map.addLayer({
-            id: 'zones-line-layer',
-            type: 'line',
-            source: 'zones-src',
-            paint: {
-              'line-color': ['coalesce', ['get', 'color'], '#0d9488'],
-              'line-width': appMode === 'ZONES' ? 3.5 : 2
-            }
-          });
-
-          map.on('click', 'zones-fill-layer', (e: any) => {
-            if (drawModeRef.current !== 'NONE') return;
-            const m = mapRef.current;
-            if (m) {
-              const topFeatures = m.queryRenderedFeatures(e.point, {
-                layers: ['buildings-fill-layer', 'buildings-extrusion-layer'].filter(l => !!m.getLayer(l))
-              });
-              if (topFeatures && topFeatures.length > 0) return;
-            }
-            const zId = e.features?.[0]?.properties?.id;
-            const targetZone = zonesRef.current.find(z => z.id === zId);
-            if (targetZone && onSelectZoneRef.current) {
-              onSelectZoneRef.current(targetZone);
-            }
-          });
-          map.on('mouseenter', 'zones-fill-layer', () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = 'pointer'; });
-          map.on('mouseleave', 'zones-fill-layer', () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = ''; });
-        } else {
-          (map.getSource('zones-src') as any).setData(zonesGeoJson);
-          map.setPaintProperty('zones-fill-layer', 'fill-color', ['coalesce', ['get', 'color'], '#0d9488']);
-          map.setPaintProperty('zones-fill-layer', 'fill-opacity', appMode === 'ZONES' ? 0.35 : 0.18);
-          map.setPaintProperty('zones-line-layer', 'line-color', ['coalesce', ['get', 'color'], '#0d9488']);
-          map.setPaintProperty('zones-line-layer', 'line-width', appMode === 'ZONES' ? 3.5 : 2);
-        }
-      } catch (err) {
-        console.warn('Error syncing zones layer:', err);
-      }
-    }
-    if (map.getLayer('zones-fill-layer')) {
-      map.setLayoutProperty('zones-fill-layer', 'visibility', layers.territorial ? 'visible' : 'none');
-      map.setLayoutProperty('zones-line-layer', 'visibility', layers.territorial ? 'visible' : 'none');
-    }
-
-    // 3. Buildings Layer (Crystal-clear visibility on Google Streets!)
-    if (layers.buildings) {
-      const bldFeatures = buildings
-        .map(b => {
-          const ring = ensureValidPolygon(b.geometry?.coordinates?.[0]);
-          if (ring.length < 4) return null;
-
-          const bApartments = apartments.filter(a => a.buildingId === b.id && !a.archivedAt);
-          let statusColor = '#3b82f6'; // default vibrant blue
-
-          if (layers.preachingStatus && bApartments.length > 0) {
-            const hasAccessProblem = bApartments.some(a => a.calculatedStatus === 'ACCESS_PROBLEM');
-            const allContacted = bApartments.every(a => a.calculatedStatus === 'CONTACTED');
-            const someContacted = bApartments.some(a => a.calculatedStatus === 'CONTACTED');
-            const someNoAnswer = bApartments.some(a => a.calculatedStatus === 'NO_ANSWER');
-
-            if (hasAccessProblem) statusColor = '#ef4444';
-            else if (allContacted) statusColor = '#10b981';
-            else if (someContacted) statusColor = '#22c55e';
-            else if (someNoAnswer) statusColor = '#f59e0b';
-          }
-
-          const finalColor = b.color || statusColor;
-          const height = Math.max(8, b.floors * 4.2);
-
-          return {
-            type: 'Feature' as const,
-            id: b.id,
-            properties: {
-              id: b.id,
-              name: b.name,
-              address: b.address,
-              floors: b.floors,
-              height: height,
-              color: finalColor,
-              isSelected: b.id === selectedBuilding?.id
-            },
-            geometry: {
-              type: 'Polygon' as const,
-              coordinates: [ring]
-            }
-          };
-        })
-        .filter(Boolean);
-
-      const buildingsGeoJson: FeatureCollection = {
-        type: 'FeatureCollection',
-        features: bldFeatures as any
-      };
-
-      try {
-        if (!map.getSource('buildings-src')) {
-          map.addSource('buildings-src', { type: 'geojson', data: buildingsGeoJson });
-
-          // 2D Fill (High opacity & vibrancy for Street map visibility)
-          map.addLayer({
-            id: 'buildings-fill-layer',
-            type: 'fill',
-            source: 'buildings-src',
-            paint: {
-              'fill-color': ['get', 'color'],
-              'fill-opacity': is3D ? 0.25 : 0.82
-            }
-          });
-
-          // 3D Extrusion
-          map.addLayer({
-            id: 'buildings-extrusion-layer',
-            type: 'fill-extrusion',
-            source: 'buildings-src',
-            paint: {
-              'fill-extrusion-color': ['get', 'color'],
-              'fill-extrusion-height': is3D ? ['get', 'height'] : 0,
-              'fill-extrusion-base': 0,
-              'fill-extrusion-opacity': is3D ? 0.88 : 0
-            }
-          });
-
-          // Bright crisp border
-          map.addLayer({
-            id: 'buildings-line-layer',
-            type: 'line',
-            source: 'buildings-src',
-            paint: {
-              'line-color': '#ffffff',
-              'line-width': [
-                'case',
-                ['boolean', ['get', 'isSelected'], false],
-                4.5,
-                2.2
-              ]
-            }
-          });
-
-          // Click handler with fresh ref
-          const onBuildingClick = (e: any) => {
-            if (drawModeRef.current !== 'NONE') return;
-            const bId = e.features?.[0]?.properties?.id;
-            const target = buildingsRef.current.find(b => b.id === bId);
-            if (target && onSelectBuildingRef.current) {
-              onSelectBuildingRef.current(target);
-            }
-          };
-
-          map.on('click', 'buildings-fill-layer', onBuildingClick);
-          map.on('click', 'buildings-extrusion-layer', onBuildingClick);
-
-          const setPtr = () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = 'pointer'; };
-          const resetPtr = () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = ''; };
-          map.on('mouseenter', 'buildings-fill-layer', setPtr);
-          map.on('mouseleave', 'buildings-fill-layer', resetPtr);
-        } else {
-          (map.getSource('buildings-src') as any).setData(buildingsGeoJson);
-          map.setPaintProperty('buildings-fill-layer', 'fill-color', ['get', 'color']);
-          map.setPaintProperty('buildings-fill-layer', 'fill-opacity', is3D ? 0.25 : 0.82);
-          map.setPaintProperty('buildings-extrusion-layer', 'fill-extrusion-color', ['get', 'color']);
-          map.setPaintProperty('buildings-extrusion-layer', 'fill-extrusion-height', is3D ? ['get', 'height'] : 0);
-          map.setPaintProperty('buildings-extrusion-layer', 'fill-extrusion-opacity', is3D ? 0.88 : 0);
-        }
-      } catch (err) {
-        console.warn('Error syncing buildings layer:', err);
-      }
-    }
-    if (map.getLayer('buildings-fill-layer')) {
-      map.setLayoutProperty('buildings-fill-layer', 'visibility', layers.buildings ? 'visible' : 'none');
-      map.setLayoutProperty('buildings-line-layer', 'visibility', layers.buildings ? 'visible' : 'none');
-      if (map.getLayer('buildings-extrusion-layer')) {
-        map.setLayoutProperty('buildings-extrusion-layer', 'visibility', layers.buildings ? 'visible' : 'none');
-      }
-    }
-  }, [layers, appMode, territories, activeTerritory, zones, buildings, apartments, selectedBuilding, selectedZone, drawMode, is3D, onSelectBuilding, onSelectZone, onSelectTerritory]);
-
-  // Initialize MapLibre (Flat 2D default: pitch 0, bearing 0 on Google Streets)
+  // Initialize MapLibre Canvas
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
@@ -566,6 +244,7 @@ export const MapView: React.FC<MapViewProps> = ({
       'bottom-right'
     );
 
+    let rafId: number | null = null;
     const updateViewport = () => {
       const c = map.getCenter();
       onViewportChange({
@@ -574,21 +253,32 @@ export const MapView: React.FC<MapViewProps> = ({
         pitch: map.getPitch(),
         bearing: map.getBearing()
       });
+
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          setCurrentZoom(map.getZoom());
+          setCurrentPitch(map.getPitch());
+          setMapTransformSeq(s => (s + 1) % 1000000);
+        });
+      }
     };
 
     map.on('move', updateViewport);
-    map.on('load', () => {
-      updateViewport();
-      syncMapLayers();
-    });
+    map.on('zoom', updateViewport);
+    map.on('rotate', updateViewport);
+    map.on('pitch', updateViewport);
+    map.on('resize', updateViewport);
+    map.on('load', updateViewport);
 
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId);
       map.remove();
       mapRef.current = null;
     };
   }, []);
 
-  // Update style ONLY when baseMap actually changes
+  // Update base map style smoothly
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -596,15 +286,10 @@ export const MapView: React.FC<MapViewProps> = ({
       currentBaseMapRef.current = baseMap;
       map.setStyle(getStyleForBaseMap(baseMap));
       map.once('style.load', () => {
-        syncMapLayers();
+        setMapTransformSeq(s => (s + 1) % 1000000);
       });
     }
-  }, [baseMap, syncMapLayers]);
-
-  // Re-sync layers whenever data changes
-  useEffect(() => {
-    syncMapLayers();
-  }, [syncMapLayers]);
+  }, [baseMap]);
 
   // Handle flyTo requests
   useEffect(() => {
@@ -634,7 +319,7 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   };
 
-  // Disable doubleClickZoom during drawing to avoid accidental auto-zoom or multiple clicks
+  // Disable doubleClickZoom during drawing
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -646,7 +331,136 @@ export const MapView: React.FC<MapViewProps> = ({
   }, [drawMode]);
 
   // -------------------------------------------------------------
-  // AutoCAD-Style Interactive Drawing Engine (Touch, S-Pen & Mouse)
+  // SUPERIMPOSED REACTIVE GRAPHICS OVERLAY ENGINE
+  // -------------------------------------------------------------
+
+  // 1. Territories Render Items
+  const renderedTerritories = useMemo(() => {
+    const map = mapRef.current;
+    if (!map || !layers.territorial) return [];
+
+    return territories.map(t => {
+      const ring = extractPolygonPoints(t.geometry);
+      if (ring.length < 3) return null;
+
+      const screenPts = ring.map(pt => map.project(pt));
+      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+      let centerPx: { x: number; y: number } | null = null;
+      if (t.center && !isNaN(t.center[0]) && !isNaN(t.center[1])) {
+        centerPx = map.project(t.center);
+      }
+
+      const color = t.color || '#0284c7';
+      const isActive = activeTerritory?.id === t.id;
+
+      return {
+        territory: t,
+        screenPts,
+        pointsAttr,
+        centerPx,
+        color,
+        isActive
+      };
+    }).filter(Boolean);
+  }, [mapRef.current, territories, layers.territorial, activeTerritory, mapTransformSeq]);
+
+  // 2. Zones / Residenciales Render Items
+  const renderedZones = useMemo(() => {
+    const map = mapRef.current;
+    if (!map || !layers.territorial) return [];
+
+    return zones.map(z => {
+      const ring = extractPolygonPoints(z.geometry);
+      if (ring.length < 3) return null;
+
+      const screenPts = ring.map(pt => map.project(pt));
+      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+      let centerPx: { x: number; y: number } | null = null;
+      if (z.center && !isNaN(z.center[0]) && !isNaN(z.center[1])) {
+        centerPx = map.project(z.center);
+      } else {
+        const sumX = screenPts.reduce((acc, p) => acc + p.x, 0);
+        const sumY = screenPts.reduce((acc, p) => acc + p.y, 0);
+        centerPx = { x: sumX / screenPts.length, y: sumY / screenPts.length };
+      }
+
+      const color = z.color || '#6366f1';
+      const isSelected = selectedZone?.id === z.id;
+
+      return {
+        zone: z,
+        screenPts,
+        pointsAttr,
+        centerPx,
+        color,
+        isSelected
+      };
+    }).filter(Boolean);
+  }, [mapRef.current, zones, layers.territorial, selectedZone, mapTransformSeq]);
+
+  // 3. Buildings Render Items (Guaranteed 100% visible everywhere)
+  const renderedBuildings = useMemo(() => {
+    const map = mapRef.current;
+    if (!map || !layers.buildings) return [];
+
+    return buildings.map(b => {
+      const ring = extractPolygonPoints(b.geometry);
+      if (ring.length < 3) return null;
+
+      const screenPts = ring.map(pt => map.project(pt));
+      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+      // Center Pixel
+      let centerPx: { x: number; y: number } | null = null;
+      if (b.center && !isNaN(b.center[0]) && !isNaN(b.center[1])) {
+        centerPx = map.project(b.center);
+      } else {
+        const sumX = screenPts.reduce((acc, p) => acc + p.x, 0);
+        const sumY = screenPts.reduce((acc, p) => acc + p.y, 0);
+        centerPx = { x: sumX / screenPts.length, y: sumY / screenPts.length };
+      }
+
+      // Color calculation: custom color or preaching status
+      let color = b.color || '#0d9488';
+      if (!b.color && layers.preachingStatus) {
+        const bApts = apartments.filter(a => a.buildingId === b.id && !a.archivedAt);
+        if (bApts.length > 0) {
+          if (bApts.some(a => a.calculatedStatus === 'ACCESS_PROBLEM')) color = '#ef4444';
+          else if (bApts.every(a => a.calculatedStatus === 'CONTACTED')) color = '#10b981';
+          else if (bApts.some(a => a.calculatedStatus === 'CONTACTED')) color = '#22c55e';
+          else if (bApts.some(a => a.calculatedStatus === 'NO_ANSWER')) color = '#f59e0b';
+        }
+      }
+
+      const isSelected = selectedBuilding?.id === b.id;
+
+      // 3D Isometric Extrusion calculations when tilted
+      let roofPts: { x: number; y: number }[] = [];
+      let roofPointsAttr = '';
+      if (currentPitch > 10) {
+        const pitchFactor = Math.sin((currentPitch * Math.PI) / 180);
+        const elevationPx = Math.max(8, b.floors * 4.5 * pitchFactor);
+        roofPts = screenPts.map(p => ({ x: p.x, y: p.y - elevationPx }));
+        roofPointsAttr = roofPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      }
+
+      return {
+        building: b,
+        screenPts,
+        pointsAttr,
+        centerPx,
+        color,
+        isSelected,
+        roofPts,
+        roofPointsAttr
+      };
+    }).filter(Boolean);
+  }, [mapRef.current, buildings, layers.buildings, layers.preachingStatus, apartments, selectedBuilding, currentPitch, mapTransformSeq]);
+
+  // -------------------------------------------------------------
+  // AutoCAD-Style Interactive Drafting Engine (Touch, S-Pen & Mouse)
   // -------------------------------------------------------------
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (drawMode === 'NONE') return;
@@ -655,7 +469,6 @@ export const MapView: React.FC<MapViewProps> = ({
 
     if (e.pointerType === 'pen') {
       setIsSPenDetected(true);
-      setSPenPressure(e.pressure);
     }
 
     const rect = e.currentTarget.getBoundingClientRect();
@@ -722,7 +535,7 @@ export const MapView: React.FC<MapViewProps> = ({
       const dx = Math.abs(x - pointerDownPosRef.current.x);
       const dy = Math.abs(y - pointerDownPosRef.current.y);
 
-      // If dragged across > 20px, finish the box immediately from release!
+      // If dragged across > 20px, finish the box immediately upon release!
       if (dx > 20 || dy > 20) {
         const lngLat = map.unproject([x, y]);
         const p1 = pointerDownPosRef.current.pt;
@@ -746,7 +559,6 @@ export const MapView: React.FC<MapViewProps> = ({
         setIsNearFirstPoint(false);
         pointerDownPosRef.current = null;
         onCompleteDrawing(boxPolygon, drawMode);
-        return;
       }
     }
   };
@@ -758,7 +570,6 @@ export const MapView: React.FC<MapViewProps> = ({
 
     if (e.pointerType === 'pen') {
       setIsSPenDetected(true);
-      setSPenPressure(e.pressure);
     }
 
     const rect = e.currentTarget.getBoundingClientRect();
@@ -790,7 +601,7 @@ export const MapView: React.FC<MapViewProps> = ({
       return;
     }
     triggerHaptic();
-    const closed = ensureValidPolygon(drawingPoints);
+    const closed = extractPolygonPoints({ coordinates: [drawingPoints] });
     if (closed.length < 4) {
       alert('Geometría no válida. Agrega más puntos.');
       return;
@@ -819,10 +630,237 @@ export const MapView: React.FC<MapViewProps> = ({
 
   return (
     <div className="relative w-full h-full select-none" style={{ touchAction: 'none' }}>
-      {/* MapLibre Canvas Container */}
+      {/* 1. MapLibre Canvas Container (Base Map) */}
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
 
-      {/* AutoCAD-Grade Real-Time Interactive Drafting Overlay */}
+      {/* 2. SUPERIMPOSED VECTOR GRAPHICS OVERLAY (Directly rendered on top of the map) */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden z-10">
+        <defs>
+          <filter id="svg-elevation-shadow" x="-30%" y="-30%" width="160%" height="160%">
+            <feDropShadow dx="0" dy="2.5" stdDeviation="3.5" floodColor="#000000" floodOpacity="0.55" />
+          </filter>
+        </defs>
+
+        {/* Level A: Territories */}
+        {renderedTerritories.map(item => item && (
+          <g
+            key={item.territory.id}
+            style={{ pointerEvents: drawMode === 'NONE' ? 'auto' : 'none', cursor: 'pointer' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              triggerHaptic();
+              if (onSelectTerritory) onSelectTerritory(item.territory);
+            }}
+          >
+            <polygon
+              points={item.pointsAttr}
+              fill={item.color}
+              fillOpacity={item.isActive ? 0.20 : 0.09}
+              stroke={item.color}
+              strokeWidth={item.isActive ? 3.5 : 2}
+              strokeDasharray="8 4"
+            />
+            {item.centerPx && currentZoom < 16 && (
+              <text
+                x={item.centerPx.x}
+                y={item.centerPx.y}
+                fill="#ffffff"
+                fontSize="12"
+                fontWeight="bold"
+                textAnchor="middle"
+                className="font-mono-tactical"
+                style={{ textShadow: '0 2px 5px rgba(0,0,0,0.9)' }}
+              >
+                {item.territory.code}
+              </text>
+            )}
+          </g>
+        ))}
+
+        {/* Level B: Zones / Residenciales */}
+        {renderedZones.map(item => item && (
+          <g
+            key={item.zone.id}
+            style={{ pointerEvents: drawMode === 'NONE' ? 'auto' : 'none', cursor: 'pointer' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              triggerHaptic();
+              onSelectZone(item.zone);
+            }}
+          >
+            <polygon
+              points={item.pointsAttr}
+              fill={item.color}
+              fillOpacity={item.isSelected ? 0.35 : 0.20}
+              stroke={item.color}
+              strokeWidth={item.isSelected ? 3.5 : 2}
+              strokeDasharray="6 3"
+              strokeLinejoin="round"
+            />
+            {item.centerPx && currentZoom >= 14 && currentZoom < 17 && (
+              <g transform={`translate(${item.centerPx.x}, ${item.centerPx.y})`}>
+                <rect
+                  x={-35}
+                  y={-10}
+                  width={70}
+                  height={20}
+                  rx={6}
+                  fill="rgba(15, 23, 42, 0.88)"
+                  stroke={item.color}
+                  strokeWidth={1}
+                />
+                <text
+                  x={0}
+                  y={4}
+                  fill="#ffffff"
+                  fontSize={9}
+                  fontWeight="bold"
+                  textAnchor="middle"
+                  className="font-mono-tactical"
+                >
+                  {item.zone.code || item.zone.name}
+                </text>
+              </g>
+            )}
+          </g>
+        ))}
+
+        {/* Level C: Buildings & Houses (Crystal-Clear Footprint + CAD Nodes + Badge) */}
+        {renderedBuildings.map(item => {
+          if (!item) return null;
+          const is3DActive = currentPitch > 10 && item.roofPts.length > 0;
+
+          return (
+            <g
+              key={item.building.id}
+              style={{ pointerEvents: drawMode === 'NONE' ? 'auto' : 'none', cursor: 'pointer' }}
+              onClick={(e) => {
+                e.stopPropagation();
+                triggerHaptic();
+                onSelectBuilding(item.building);
+              }}
+              filter="url(#svg-elevation-shadow)"
+              className="transition-opacity duration-150"
+            >
+              {/* If 3D mode: render ground footprint shadow and 3D walls */}
+              {is3DActive ? (
+                <>
+                  {/* Ground Shadow */}
+                  <polygon
+                    points={item.pointsAttr}
+                    fill="rgba(0,0,0,0.4)"
+                  />
+                  {/* Isometric Walls */}
+                  {item.screenPts.map((p1, idx) => {
+                    const nextIdx = (idx + 1) % item.screenPts.length;
+                    const p2 = item.screenPts[nextIdx];
+                    const r1 = item.roofPts[idx];
+                    const r2 = item.roofPts[nextIdx];
+                    const wallPoints = `${p1.x},${p1.y} ${p2.x},${p2.y} ${r2.x},${r2.y} ${r1.x},${r1.y}`;
+                    return (
+                      <polygon
+                        key={idx}
+                        points={wallPoints}
+                        fill={item.color}
+                        fillOpacity={0.72}
+                        stroke={item.isSelected ? '#ffffff' : item.color}
+                        strokeWidth={1}
+                      />
+                    );
+                  })}
+                  {/* Elevated Roof */}
+                  <polygon
+                    points={item.roofPointsAttr}
+                    fill={item.color}
+                    fillOpacity={item.isSelected ? 0.95 : 0.88}
+                    stroke={item.isSelected ? '#ffffff' : '#ffffff'}
+                    strokeWidth={item.isSelected ? 3.5 : 1.8}
+                    strokeLinejoin="round"
+                  />
+                </>
+              ) : (
+                /* Flat 2D Mode: High-contrast architectural footprint */
+                <polygon
+                  points={item.pointsAttr}
+                  fill={item.color}
+                  fillOpacity={item.isSelected ? 0.78 : 0.58}
+                  stroke={item.isSelected ? '#ffffff' : item.color}
+                  strokeWidth={item.isSelected ? 4 : 2.4}
+                  strokeLinejoin="round"
+                  className="transition-all hover:fill-opacity-80"
+                />
+              )}
+
+              {/* CAD Vertex Nodes */}
+              {item.screenPts.map((pt, idx) => (
+                <circle
+                  key={idx}
+                  cx={pt.x}
+                  cy={pt.y}
+                  r={item.isSelected ? 3.5 : 2}
+                  fill="#ffffff"
+                  stroke={item.color}
+                  strokeWidth={1}
+                />
+              ))}
+
+              {/* Center Building Label Badge (visible when zoom >= 15.5) */}
+              {item.centerPx && currentZoom >= 15.5 && (
+                <g transform={`translate(${item.centerPx.x}, ${is3DActive ? item.centerPx.y - 14 : item.centerPx.y})`}>
+                  <rect
+                    x={-30}
+                    y={-10}
+                    width={60}
+                    height={20}
+                    rx={5}
+                    fill="rgba(15, 23, 42, 0.92)"
+                    stroke={item.isSelected ? '#ffffff' : item.color}
+                    strokeWidth={item.isSelected ? 2 : 1}
+                  />
+                  <text
+                    x={0}
+                    y={4}
+                    fill="#ffffff"
+                    fontSize={9}
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    className="font-mono-tactical"
+                  >
+                    {item.building.name.length > 10 ? item.building.name.substring(0, 9) + '…' : item.building.name}
+                  </text>
+                </g>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* 3. Floating 3D / 2D Switcher (Google Maps style) */}
+      <div className="absolute bottom-28 right-3.5 z-20 flex flex-col gap-2">
+        <button
+          onClick={toggle3DMode}
+          className={`w-10 h-10 rounded-2xl border font-bold text-xs shadow-2xl flex items-center justify-center transition-all active:scale-95 ${
+            is3D
+              ? 'bg-teal-500 text-slate-950 border-teal-300 ring-2 ring-teal-400 shadow-teal-500/30'
+              : 'bg-slate-900/95 hover:bg-slate-800 text-slate-200 border-slate-700'
+          }`}
+          title={is3D ? "Cambiar a mapa plano 2D" : "Cambiar a vista 3D con relieve"}
+        >
+          {is3D ? '2D' : '3D'}
+        </button>
+
+        {/* S-Pen Status Indicator */}
+        {isSPenDetected && (
+          <div 
+            className="w-10 h-10 rounded-2xl bg-slate-900/95 border border-teal-500/60 text-teal-400 font-bold text-xs shadow-2xl flex items-center justify-center"
+            title="S-Pen de Samsung activo"
+          >
+            ✏️
+          </div>
+        )}
+      </div>
+
+      {/* 4. AutoCAD-Grade Real-Time Interactive Drafting Overlay */}
       {drawMode !== 'NONE' && (
         <div
           onPointerDown={handlePointerDown}
@@ -930,7 +968,7 @@ export const MapView: React.FC<MapViewProps> = ({
                   x={p.x + 9}
                   y={p.y - 7}
                   fill="#ffffff"
-                  fontSize="11"
+                  fontSize={11}
                   fontWeight="bold"
                   className="font-mono-tactical"
                   style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}
@@ -971,32 +1009,7 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       )}
 
-      {/* Floating 3D / 2D Switcher (Google Maps style) */}
-      <div className="absolute bottom-28 right-3.5 z-20 flex flex-col gap-2">
-        <button
-          onClick={toggle3DMode}
-          className={`w-10 h-10 rounded-2xl border font-bold text-xs shadow-2xl flex items-center justify-center transition-all active:scale-95 ${
-            is3D
-              ? 'bg-teal-500 text-slate-950 border-teal-300 ring-2 ring-teal-400 shadow-teal-500/30'
-              : 'bg-slate-900/95 hover:bg-slate-800 text-slate-200 border-slate-700'
-          }`}
-          title={is3D ? "Cambiar a mapa plano 2D" : "Cambiar a vista 3D con relieve"}
-        >
-          {is3D ? '2D' : '3D'}
-        </button>
-
-        {/* S-Pen Status Indicator */}
-        {isSPenDetected && (
-          <div 
-            className="w-10 h-10 rounded-2xl bg-slate-900/95 border border-teal-500/60 text-teal-400 font-bold text-xs shadow-2xl flex items-center justify-center"
-            title="S-Pen de Samsung activo"
-          >
-            ✏️
-          </div>
-        )}
-      </div>
-
-      {/* AutoCAD Drafting Control Bar (Anchored at Top under Search) */}
+      {/* 5. AutoCAD Drafting Control Bar (Anchored at Top under Search) */}
       {drawMode !== 'NONE' && (
         <div className="absolute top-28 sm:top-24 left-1/2 -translate-x-1/2 z-40 max-w-[94vw] w-auto">
           <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-slate-900/98 backdrop-blur-xl border border-teal-500/60 shadow-2xl text-xs text-slate-100">
@@ -1005,7 +1018,7 @@ export const MapView: React.FC<MapViewProps> = ({
                 <Box className="w-4 h-4 text-teal-400 animate-pulse flex-shrink-0" />
                 <span className="font-medium">
                   {drawingPoints.length === 0 
-                    ? '1. Toca la primera esquina sobre el mapa' 
+                    ? '1. Toca o arrastra la primera esquina sobre el mapa' 
                     : '2. Mueve y toca la esquina opuesta para cerrar'}
                 </span>
               </>

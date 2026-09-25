@@ -451,13 +451,69 @@ export const SEED_BUILDINGS: Building[] = [
     buildingType: 'TOWER',
     floors: 12,
     accessType: 'GATE_SECURITY',
+    color: '#3b82f6',
     notes: 'Portón eléctrico y vigilancia constante.',
     createdAt: '2025-02-18T10:00:00Z',
     updatedAt: '2025-02-18T10:00:00Z'
+  },
+  // --- EDIFICIOS DE PRUEBA EN ÁREA LIBRE (TEST SHAPES) ---
+  {
+    id: 'bld-test-free-01',
+    zoneId: 'zone-general',
+    territoryId: 'terr-general',
+    name: 'Edificio Test #1',
+    address: 'Av. George Washington #102, Malecón',
+    center: [-69.8820, 18.4720],
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[
+        [-69.8825, 18.4716],
+        [-69.8815, 18.4716],
+        [-69.8815, 18.4724],
+        [-69.8825, 18.4724],
+        [-69.8825, 18.4716]
+      ]]
+    },
+    buildingType: 'RESIDENTIAL_BUILDING',
+    floors: 5,
+    accessType: 'INTERCOM',
+    color: '#0d9488',
+    notes: 'Edificio de prueba en área libre para verificación visual.',
+    createdAt: '2025-03-01T10:00:00Z',
+    updatedAt: '2025-03-01T10:00:00Z'
+  },
+  {
+    id: 'bld-test-free-02',
+    zoneId: 'zone-general',
+    territoryId: 'terr-general',
+    name: 'Casa Test #2',
+    address: 'Calle Arzobispo Portes #55',
+    center: [-69.8840, 18.4715],
+    geometry: {
+      type: 'Polygon',
+      coordinates: [[
+        [-69.8845, 18.4711],
+        [-69.8835, 18.4711],
+        [-69.8835, 18.4719],
+        [-69.8845, 18.4719],
+        [-69.8845, 18.4711]
+      ]]
+    },
+    buildingType: 'HOUSE',
+    floors: 2,
+    accessType: 'FREE',
+    color: '#f59e0b',
+    notes: 'Casa de prueba en área libre con color naranja ámbar.',
+    createdAt: '2025-03-01T10:00:00Z',
+    updatedAt: '2025-03-01T10:00:00Z'
   }
 ];
 
 export const SEED_APARTMENTS: Apartment[] = [
+  // Apartamentos de prueba
+  { id: 'apt-test-01-101', buildingId: 'bld-test-free-01', unitNumber: '101', floor: 1, calculatedStatus: 'CONTACTED', lastVisitedAt: '2025-03-01T15:30:00Z' },
+  { id: 'apt-test-01-102', buildingId: 'bld-test-free-01', unitNumber: '102', floor: 1, calculatedStatus: 'PENDING', lastVisitedAt: null },
+  { id: 'apt-test-02-01', buildingId: 'bld-test-free-02', unitNumber: 'Principal', floor: 1, calculatedStatus: 'CONTACTED', lastVisitedAt: '2025-03-01T16:00:00Z' },
   // Edificio El Conde Real (bld-zc-01) - 8 unidades
   { id: 'apt-zc-01-101', buildingId: 'bld-zc-01', unitNumber: '101', floor: 1, calculatedStatus: 'CONTACTED', lastVisitedAt: '2025-03-01T15:30:00Z' },
   { id: 'apt-zc-01-102', buildingId: 'bld-zc-01', unitNumber: '102', floor: 1, calculatedStatus: 'NO_ANSWER', lastVisitedAt: '2025-03-01T15:35:00Z' },
