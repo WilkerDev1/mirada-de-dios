@@ -775,31 +775,36 @@ export const MapView: React.FC<MapViewProps> = ({
               strokeDasharray="6 3"
               strokeLinejoin="round"
             />
-            {item.centerPx && currentZoom >= 14 && currentZoom < 17 && (
-              <g transform={`translate(${item.centerPx.x}, ${item.centerPx.y})`}>
-                <rect
-                  x={-35}
-                  y={-10}
-                  width={70}
-                  height={20}
-                  rx={6}
-                  fill="rgba(15, 23, 42, 0.88)"
-                  stroke={item.color}
-                  strokeWidth={1}
-                />
-                <text
-                  x={0}
-                  y={4}
-                  fill="#ffffff"
-                  fontSize={9}
-                  fontWeight="bold"
-                  textAnchor="middle"
-                  className="font-mono-tactical"
-                >
-                  {item.zone.code || item.zone.name}
-                </text>
-              </g>
-            )}
+            {item.centerPx && currentZoom >= 13 && (() => {
+              const labelText = item.zone.name || item.zone.code || 'Residencial';
+              const textWidth = Math.max(80, labelText.length * 7.5 + 24);
+              return (
+                <g transform={`translate(${item.centerPx.x}, ${item.centerPx.y})`}>
+                  <rect
+                    x={-textWidth / 2}
+                    y={-11}
+                    width={textWidth}
+                    height={22}
+                    rx={11}
+                    fill="rgba(15, 23, 42, 0.92)"
+                    stroke={item.color}
+                    strokeWidth={1.5}
+                    filter="drop-shadow(0 2px 4px rgba(0,0,0,0.5))"
+                  />
+                  <text
+                    x={0}
+                    y={4}
+                    fill="#ffffff"
+                    fontSize={10}
+                    fontWeight="bold"
+                    textAnchor="middle"
+                    className="font-mono-tactical"
+                  >
+                    {labelText}
+                  </text>
+                </g>
+              );
+            })()}
           </g>
         ))}
 

@@ -246,7 +246,29 @@ export const App: React.FC = () => {
     showToast('✓ Visita registrada');
   };
 
-  // Google Maps Style Fast Drawing Creation: instant save without opening modals!
+  // Point in Polygon Ray Casting helper for auto-linking entities by layer containment
+  const isPointInPolygon = (point: [number, number], polygonCoordinates?: any): boolean => {
+    if (!polygonCoordinates || !Array.isArray(polygonCoordinates) || polygonCoordinates.length === 0) return false;
+    let ring: [number, number][] = [];
+    if (Array.isArray(polygonCoordinates[0]) && Array.isArray(polygonCoordinates[0][0])) {
+      ring = polygonCoordinates[0] as [number, number][];
+    } else if (Array.isArray(polygonCoordinates[0]) && typeof polygonCoordinates[0][0] === 'number') {
+      ring = polygonCoordinates as [number, number][];
+    }
+    if (ring.length < 3) return false;
+    const [x, y] = point;
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      const intersect = ((yi > y) !== (yj > y)) &&
+        (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  };
+
+  // Google Maps Style Fast Drawing Creation with Smart Automatic Spatial Layer Linking!
   const handleCompleteDrawing = async (polygon: number[][][], mode: DrawMode) => {
     setDrawMode('NONE');
 
@@ -262,9 +284,25 @@ export const App: React.FC = () => {
 
     if (mode === 'DRAW_BUILDING_BOX' || mode === 'DRAW_BUILDING_POLYGON') {
       const newBuildingNumber = buildings.length + 1;
-      const assignedZoneId = selectedZone?.id || zones[0]?.id || 'zone-general';
-      const assignedTerritoryId = activeTerritory?.id || 'terr-general';
-      const zoneName = selectedZone?.name || zones[0]?.name || 'Área Libre';
+
+      // Smart Spatial Auto-Linking: Check if building is drawn inside any existing zone
+      const containingZone = zones.find(z => 
+        isPointInPolygon(center, z.geometry?.coordinates) || 
+        ring.some(pt => isPointInPolygon([pt[0], pt[1]], z.geometry?.coordinates))
+      );
+
+      // Check if inside any existing territory
+      const containingTerritory = containingZone 
+        ? territories.find(t => t.id === containingZone.territoryId)
+        : territories.find(t => 
+            isPointInPolygon(center, t.geometry?.coordinates) ||
+            ring.some(pt => isPointInPolygon([pt[0], pt[1]], t.geometry?.coordinates))
+          );
+
+      const assignedZoneId = containingZone ? containingZone.id : (selectedZone?.id || 'zone-general');
+      const assignedTerritoryId = containingZone?.territoryId || containingTerritory?.id || activeTerritory?.id || 'terr-general';
+      const zoneName = containingZone?.name || selectedZone?.name || 'Área Libre';
+      const buildingColor = containingZone?.color || '#0d9488';
 
       const newBuilding = await createBuildingWithApartments({
         zoneId: assignedZoneId,
@@ -277,22 +315,34 @@ export const App: React.FC = () => {
         floors: 3,
         accessType: 'INTERCOM',
         unitsPerFloor: 2,
-        color: '#0d9488'
+        color: buildingColor
       });
 
       await loadAllData();
       const pending = await getPendingSyncCount();
       setPendingSyncCount(pending);
 
-      // Do NOT open any modal or sheet automatically - keep screen clear for rapid creation!
       setSelectedBuilding(null);
       setSelectedZone(null);
       setSelectedTerritory(null);
-      showToast(`✓ Edificio #${newBuildingNumber} creado. Tócalo para editar.`);
+
+      if (containingZone) {
+        showToast(`✓ Edificio #${newBuildingNumber} creado y enlazado a ${containingZone.name}`);
+      } else if (containingTerritory) {
+        showToast(`✓ Edificio #${newBuildingNumber} creado y enlazado a ${containingTerritory.name}`);
+      } else {
+        showToast(`✓ Edificio #${newBuildingNumber} creado. Tócalo para editar.`);
+      }
 
     } else if (mode === 'DRAW_ZONE_BOX' || mode === 'DRAW_ZONE_POLYGON') {
       const zoneNum = zones.length + 1;
-      const assignedTerritoryId = activeTerritory?.id || 'terr-general';
+
+      // Smart Spatial Auto-Linking: Check if zone is drawn inside any existing territory
+      const containingTerritory = territories.find(t => 
+        isPointInPolygon(center, t.geometry?.coordinates) ||
+        ring.some(pt => isPointInPolygon([pt[0], pt[1]], t.geometry?.coordinates))
+      );
+      const assignedTerritoryId = containingTerritory ? containingTerritory.id : (activeTerritory?.id || 'terr-general');
 
       const newZone = await createZone({
         territoryId: assignedTerritoryId,
@@ -304,11 +354,15 @@ export const App: React.FC = () => {
       });
 
       await loadAllData();
-      // Do NOT open any modal or sheet automatically!
       setSelectedBuilding(null);
       setSelectedZone(null);
       setSelectedTerritory(null);
-      showToast(`✓ Residencial #${zoneNum} creado. Tócalo para editar.`);
+
+      if (containingTerritory) {
+        showToast(`✓ Residencial #${zoneNum} creado y enlazado a ${containingTerritory.name}`);
+      } else {
+        showToast(`✓ Residencial #${zoneNum} creado. Tócalo para editar.`);
+      }
 
     } else if (mode === 'DRAW_TERRITORY_POLYGON') {
       const terrCode = `SD-0${territories.length + 1}`;
@@ -322,11 +376,44 @@ export const App: React.FC = () => {
       });
 
       await loadAllData();
-      // Do NOT open any modal or sheet automatically!
       setSelectedBuilding(null);
       setSelectedZone(null);
       setSelectedTerritory(null);
       showToast(`✓ Territorio ${terrCode} creado. Tócalo para editar.`);
+    }
+  };
+
+  const handleMoveZoneToTerritory = async (zoneId: string, territoryId: string) => {
+    try {
+      await updateZone(zoneId, { territoryId });
+      // Keep buildings inside this zone in sync with the new territoryId
+      const zoneBuildings = buildings.filter(b => b.zoneId === zoneId);
+      for (const b of zoneBuildings) {
+        await updateBuilding(b.id, { territoryId });
+      }
+      await loadAllData();
+      const targetTerr = territories.find(t => t.id === territoryId);
+      const movedZone = zones.find(z => z.id === zoneId);
+      showToast(`✓ ${movedZone?.name || 'Residencial'} enlazado a ${targetTerr?.name || 'Territorio'}`);
+    } catch (e) {
+      console.error('Error moving zone to territory:', e);
+      showToast('Error al enlazar residencial');
+    }
+  };
+
+  const handleMoveBuildingToZone = async (buildingId: string, zoneId: string) => {
+    try {
+      const targetZone = zones.find(z => z.id === zoneId);
+      await updateBuilding(buildingId, { 
+        zoneId, 
+        territoryId: targetZone?.territoryId || activeTerritory?.id || 'terr-general'
+      });
+      await loadAllData();
+      const movedBuilding = buildings.find(b => b.id === buildingId);
+      showToast(`✓ ${movedBuilding?.name || 'Edificio'} enlazado a ${targetZone?.name || 'Residencial'}`);
+    } catch (e) {
+      console.error('Error moving building to zone:', e);
+      showToast('Error al enlazar edificio');
     }
   };
 
@@ -528,22 +615,29 @@ export const App: React.FC = () => {
         territoryCode={activeTerritory ? activeTerritory.code : 'SD-01'}
       />
 
-      {/* Territorial Structure Drawer */}
+      {/* Territorial Structure Drawer & Folder Dock Organizer */}
       <TerritoryTree
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        territories={territories}
         activeTerritory={activeTerritory}
         zones={zones}
         buildings={buildings}
         apartments={apartments}
         selectedBuildingId={selectedBuilding?.id || null}
         onSelectBuilding={handleSelectBuilding}
+        onSelectTerritory={handleSelectTerritory}
+        onSelectZone={handleSelectZone}
+        onFlyToTerritory={(t) => handleFlyToLocation(t.center, 15.5)}
         onFlyToZone={(z) => handleFlyToLocation(z.center, 16.5)}
+        onFlyToBuilding={(b) => handleFlyToLocation(b.center, 18.5)}
         onOpenCreateZone={() => {
           setAppMode('ZONES');
           setDrawMode('DRAW_ZONE_BOX');
           showToast('Dibuja un cuadro en el mapa para el nuevo residencial');
         }}
+        onMoveZoneToTerritory={handleMoveZoneToTerritory}
+        onMoveBuildingToZone={handleMoveBuildingToZone}
       />
 
       {/* Google Maps Bottom Sheet: Building Details, Visits & Color Customization */}
