@@ -47,7 +47,7 @@ npm run deploy
 ## 🌐 Versión Web en Vivo (Producción)
 
 La versión web está desplegada y disponible públicamente en Vercel:
-- **URL de Producción:** [https://miradadedios.vercel.app](https://miradadedios.vercel.app)
+- **URL de Producción:** [https://territorymanager.vercel.app](https://territorymanager.vercel.app)
 - **Repositorio Conectado:** [WilkerDev1/mirada-de-dios](https://github.com/WilkerDev1/mirada-de-dios)
 
 

@@ -2,15 +2,15 @@
 
 > **"Simple para el usuario. Estructurado para el sistema. Geográfico en su representación. Histórico en sus datos. Offline por diseño."**
 
-[![Vercel Deployment](https://img.shields.io/badge/Vercel-Live%20Web%20App-black?logo=vercel)](https://miradadedios.vercel.app)
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Live%20Web%20App-black?logo=vercel)](https://territorymanager.vercel.app)
 [![Android Build](https://img.shields.io/badge/Android-APK%20Ready-brightgreen?logo=android)](https://github.com/WilkerDev1/mirada-de-dios/releases)
 [![MapLibre GL](https://img.shields.io/badge/Engine-MapLibre%20GL%20JS-blue?logo=webgl)](https://maplibre.org/)
 [![Capacitor](https://img.shields.io/badge/Mobile-Capacitor%208-1199EE?logo=capacitor)](https://capacitorjs.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Mirada de Dios** es una plataforma de gestión territorial y cartográfica offline-first diseñada para el mapeo estructurado de territorios residenciales, edificios, apartamentos, visitas e historial inmutable de predicación. 
+**Mirada de Dios** (Territory Manager) es una plataforma de gestión territorial y cartográfica offline-first diseñada para el mapeo estructurado de territorios residenciales, edificios, apartamentos, visitas e historial inmutable de predicación. 
 
-🌐 **Demo Web en Vivo:** [https://miradadedios.vercel.app](https://miradadedios.vercel.app)
+🌐 **Demo Web en Vivo:** [https://territorymanager.vercel.app](https://territorymanager.vercel.app)
 
 
 Inspirada tácticamente en la consola de inteligencia geoespacial [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view) de Bilawal Sidhu y diseñada estrictamente bajo las especificaciones de arquitectura territorial v2.0 (`documentacion-de-aplicacion.md`).
