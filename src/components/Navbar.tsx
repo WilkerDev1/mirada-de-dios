@@ -68,6 +68,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     function handleClickOutside(e: MouseEvent) {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
         setShowSearchResults(false);
+        setTerritoryDropdownOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
@@ -106,7 +107,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       {/* Floating Google Maps Style Search Pill */}
       <div 
         ref={searchRef}
-        className="pointer-events-auto flex items-center justify-between h-12 px-3 rounded-2xl bg-slate-900/95 backdrop-blur-2xl border border-slate-700/90 shadow-2xl text-slate-100 transition-all"
+        className="relative z-50 pointer-events-auto flex items-center justify-between h-12 px-3 rounded-2xl bg-slate-900/95 backdrop-blur-2xl border border-slate-700/90 shadow-2xl text-slate-100 transition-all"
       >
         {/* Drawer Hamburger */}
         <button
@@ -154,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
 
             {territoryDropdownOpen && (
-              <div className="absolute top-full right-0 mt-2 w-64 rounded-2xl bg-slate-900/98 backdrop-blur-2xl border border-slate-700 shadow-2xl p-1.5 z-50">
+              <div className="absolute top-full right-0 mt-2 w-64 max-h-72 overflow-y-auto rounded-2xl bg-slate-900/98 backdrop-blur-2xl border border-slate-700 shadow-2xl p-1.5 z-50">
                 <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider font-mono-tactical">
                   Territorios
                 </div>
@@ -204,7 +205,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* Auto-suggest Search Dropdown */}
       {showSearchResults && searchResults.length > 0 && (
-        <div className="pointer-events-auto mt-1.5 rounded-2xl bg-slate-900/98 backdrop-blur-2xl border border-slate-700 shadow-2xl p-1 z-50 overflow-hidden">
+        <div className="relative z-50 pointer-events-auto mt-1.5 rounded-2xl bg-slate-900/98 backdrop-blur-2xl border border-slate-700 shadow-2xl p-1 overflow-hidden">
           {searchResults.map(res => (
             <button
               key={res.id}
@@ -228,7 +229,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       )}
 
       {/* Mode Selector Tabs (Edificios / Residenciales / Territorios) */}
-      <div className="pointer-events-auto flex items-center justify-center gap-1 mt-2.5 p-1 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-slate-800/80 shadow-lg">
+      <div className="relative z-10 pointer-events-auto flex items-center justify-center gap-1 mt-2.5 p-1 rounded-2xl bg-slate-950/80 backdrop-blur-md border border-slate-800/80 shadow-lg">
         <button
           onClick={() => {
             onSelectAppMode('BUILDINGS');
@@ -276,7 +277,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Horizontal Action Chips according to current mode */}
-      <div className="pointer-events-auto flex items-center gap-1.5 mt-2 overflow-x-auto no-scrollbar py-0.5 px-0.5">
+      <div className="relative z-10 pointer-events-auto flex items-center gap-1.5 mt-2 overflow-x-auto no-scrollbar py-0.5 px-0.5">
         {appMode === 'BUILDINGS' && (
           <>
             <button

@@ -97,6 +97,7 @@ export const App: React.FC = () => {
 
   // Map state (Flat 2D by default: pitch 0 on Google Streets)
   const [baseMap, setBaseMap] = useState<BaseMapStyle>('GOOGLE_STREETS');
+  const [is3D, setIs3D] = useState(false);
 
   const [layers, setLayers] = useState<LayerToggles>({
     territorial: true,
@@ -602,6 +603,7 @@ export const App: React.FC = () => {
           drawMode={drawMode}
           onCompleteDrawing={handleCompleteDrawing}
           onCancelDrawing={() => setDrawMode('NONE')}
+          is3D={is3D}
         />
       </main>
 
@@ -701,6 +703,8 @@ export const App: React.FC = () => {
         onToggleLayer={handleToggleLayer}
         isOpen={layerControlOpen}
         onToggleOpen={() => setLayerControlOpen(!layerControlOpen)}
+        is3D={is3D}
+        onToggle3D={() => setIs3D(prev => !prev)}
       />
 
       {/* Bottom Status & Coverage Telemetry Bar */}

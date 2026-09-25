@@ -37,6 +37,7 @@ interface MapViewProps {
   drawMode: DrawMode;
   onCompleteDrawing: (coords: number[][][], mode: DrawMode) => void;
   onCancelDrawing: () => void;
+  is3D?: boolean;
 }
 
 // Robust helper to extract closed polygon coordinates from any GeoJSON structure (3D or 2D)
@@ -118,7 +119,8 @@ export const MapView: React.FC<MapViewProps> = ({
   flyToLocation,
   drawMode,
   onCompleteDrawing,
-  onCancelDrawing
+  onCancelDrawing,
+  is3D = false
 }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<Map | null>(null);
@@ -128,7 +130,6 @@ export const MapView: React.FC<MapViewProps> = ({
   const [mapTransformSeq, setMapTransformSeq] = useState(0);
   const [currentZoom, setCurrentZoom] = useState(16.5);
   const [currentPitch, setCurrentPitch] = useState(0);
-  const [is3D, setIs3D] = useState(false);
 
   // AutoCAD-Style Interactive Drafting State
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
@@ -535,20 +536,15 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   }, [flyToLocation, is3D]);
 
-  // Toggle 3D perspective / 2D flat mode smoothly
-  const toggle3DMode = () => {
+  // Effect to reactively update map pitch when is3D prop changes
+  useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    triggerHaptic();
-
-    if (is3D) {
-      map.easeTo({ pitch: 0, bearing: 0, duration: 700 });
-      setIs3D(false);
-    } else {
-      map.easeTo({ pitch: 55, duration: 700 });
-      setIs3D(true);
+    const targetPitch = is3D ? 55 : 0;
+    if (Math.abs(map.getPitch() - targetPitch) > 1) {
+      map.easeTo({ pitch: targetPitch, duration: 700 });
     }
-  };
+  }, [is3D]);
 
   // Disable doubleClickZoom during drawing
   useEffect(() => {
@@ -912,20 +908,7 @@ export const MapView: React.FC<MapViewProps> = ({
         })}
       </svg>
 
-      {/* 3. Floating 3D / 2D Switcher (Google Maps style, safely relocated away from bottom controls) */}
-      <div className="absolute top-28 sm:top-24 right-3.5 z-20">
-        <button
-          onClick={toggle3DMode}
-          className={`w-10 h-10 rounded-2xl border font-bold text-xs shadow-2xl flex items-center justify-center transition-all active:scale-95 ${
-            is3D
-              ? 'bg-teal-500 text-slate-950 border-teal-300 ring-2 ring-teal-400 shadow-teal-500/30'
-              : 'bg-slate-900/95 hover:bg-slate-800 text-slate-200 border-slate-700'
-          }`}
-          title={is3D ? "Cambiar a mapa plano 2D" : "Cambiar a vista 3D con relieve"}
-        >
-          {is3D ? '2D' : '3D'}
-        </button>
-      </div>
+
 
       {/* 4. AutoCAD-Grade Real-Time Interactive Drafting Overlay */}
       {drawMode !== 'NONE' && (

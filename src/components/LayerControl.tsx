@@ -18,6 +18,8 @@ interface LayerControlProps {
   onToggleLayer: (layerKey: keyof LayerToggles) => void;
   isOpen: boolean;
   onToggleOpen: () => void;
+  is3D?: boolean;
+  onToggle3D?: () => void;
 }
 
 export const LayerControl: React.FC<LayerControlProps> = ({
@@ -26,26 +28,57 @@ export const LayerControl: React.FC<LayerControlProps> = ({
   layers,
   onToggleLayer,
   isOpen,
-  onToggleOpen
+  onToggleOpen,
+  is3D = false,
+  onToggle3D
 }) => {
   return (
     <div className="fixed bottom-14 left-3 z-30 select-none">
       {!isOpen ? (
-        <button
-          onClick={onToggleOpen}
-          className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900/95 hover:bg-slate-800 backdrop-blur-xl border border-slate-700/80 shadow-2xl text-xs font-semibold text-slate-200 transition-all active:scale-95"
-        >
-          <Layers className="w-4 h-4 text-teal-400" />
-          <span>Capas</span>
-          <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onToggleOpen}
+            className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-slate-900/95 hover:bg-slate-800 backdrop-blur-xl border border-slate-700/80 shadow-2xl text-xs font-semibold text-slate-200 transition-all active:scale-95"
+          >
+            <Layers className="w-4 h-4 text-teal-400" />
+            <span>Capas</span>
+            <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+          </button>
+
+          {onToggle3D && (
+            <button
+              onClick={onToggle3D}
+              className={`h-8 px-2.5 rounded-2xl border text-xs font-bold shadow-2xl flex items-center justify-center transition-all active:scale-95 ${
+                is3D
+                  ? 'bg-teal-500 text-slate-950 border-teal-300 ring-2 ring-teal-400 shadow-teal-500/30'
+                  : 'bg-slate-900/95 hover:bg-slate-800 text-slate-200 border-slate-700'
+              }`}
+              title={is3D ? "Cambiar a mapa plano 2D" : "Cambiar a vista 3D con relieve"}
+            >
+              {is3D ? '2D' : '3D'}
+            </button>
+          )}
+        </div>
       ) : (
         <div className="w-80 max-w-[92vw] rounded-3xl bg-slate-950/98 backdrop-blur-2xl border border-slate-700 shadow-2xl p-4 text-slate-200 space-y-3.5 animate-in fade-in zoom-in-95">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-            <div className="flex items-center gap-1.5 text-xs font-bold text-teal-300">
+            <div className="flex items-center gap-2 text-xs font-bold text-teal-300">
               <Layers className="w-4 h-4 text-teal-400" />
               <span>MAPAS Y CAPAS</span>
+              {onToggle3D && (
+                <button
+                  type="button"
+                  onClick={onToggle3D}
+                  className={`ml-2 px-2 py-0.5 rounded-lg border text-[10px] font-bold transition-all active:scale-95 ${
+                    is3D
+                      ? 'bg-teal-500 text-slate-950 border-teal-300 ring-1 ring-teal-400'
+                      : 'bg-slate-900 text-slate-300 border-slate-700 hover:bg-slate-800'
+                  }`}
+                >
+                  {is3D ? 'Modo 3D Activo' : 'Modo 2D Plano'}
+                </button>
+              )}
             </div>
             <button
               onClick={onToggleOpen}
