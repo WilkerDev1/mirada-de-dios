@@ -136,9 +136,6 @@ export const MapView: React.FC<MapViewProps> = ({
   const [isNearFirstPoint, setIsNearFirstPoint] = useState(false);
   const pointerDownPosRef = useRef<{ x: number; y: number; pt: [number, number] } | null>(null);
 
-  // Samsung S-Pen / Stylus state
-  const [isSPenDetected, setIsSPenDetected] = useState(false);
-
   // Mutable refs for entity selection in MapLibre tap listener
   const renderedBuildingsRef = useRef<any[]>([]);
   const renderedZonesRef = useRef<any[]>([]);
@@ -572,10 +569,6 @@ export const MapView: React.FC<MapViewProps> = ({
     const map = mapRef.current;
     if (!map) return;
 
-    if (e.pointerType === 'pen') {
-      setIsSPenDetected(true);
-    }
-
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -672,10 +665,6 @@ export const MapView: React.FC<MapViewProps> = ({
     if (drawMode === 'NONE') return;
     const map = mapRef.current;
     if (!map) return;
-
-    if (e.pointerType === 'pen') {
-      setIsSPenDetected(true);
-    }
 
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -918,8 +907,8 @@ export const MapView: React.FC<MapViewProps> = ({
         })}
       </svg>
 
-      {/* 3. Floating 3D / 2D Switcher (Google Maps style) */}
-      <div className="absolute bottom-28 right-3.5 z-20 flex flex-col gap-2">
+      {/* 3. Floating 3D / 2D Switcher (Google Maps style, safely relocated away from bottom controls) */}
+      <div className="absolute top-28 sm:top-24 right-3.5 z-20">
         <button
           onClick={toggle3DMode}
           className={`w-10 h-10 rounded-2xl border font-bold text-xs shadow-2xl flex items-center justify-center transition-all active:scale-95 ${
@@ -931,16 +920,6 @@ export const MapView: React.FC<MapViewProps> = ({
         >
           {is3D ? '2D' : '3D'}
         </button>
-
-        {/* S-Pen Status Indicator */}
-        {isSPenDetected && (
-          <div 
-            className="w-10 h-10 rounded-2xl bg-slate-900/95 border border-teal-500/60 text-teal-400 font-bold text-xs shadow-2xl flex items-center justify-center"
-            title="S-Pen de Samsung activo"
-          >
-            ✏️
-          </div>
-        )}
       </div>
 
       {/* 4. AutoCAD-Grade Real-Time Interactive Drafting Overlay */}

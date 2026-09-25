@@ -483,3 +483,43 @@ export async function deleteTerritory(territoryId: string): Promise<void> {
     await db.territories.delete(territoryId);
   });
 }
+
+export async function createApartment(data: {
+  buildingId: string;
+  unitNumber: string;
+  floor: number;
+  notes?: string;
+  calculatedStatus?: ApartmentStatus;
+}): Promise<Apartment> {
+  const aptId = `apt-${data.buildingId}-${data.unitNumber.replace(/\s+/g, '')}-${Date.now().toString(36)}`;
+  const newApt: Apartment = {
+    id: aptId,
+    buildingId: data.buildingId,
+    unitNumber: data.unitNumber,
+    floor: Number(data.floor) || 1,
+    notes: data.notes,
+    calculatedStatus: data.calculatedStatus || 'PENDING',
+    lastVisitedAt: null
+  };
+  await db.apartments.add(newApt);
+  return newApt;
+}
+
+export async function deleteApartment(apartmentId: string): Promise<void> {
+  await db.transaction('rw', [db.apartments, db.visits], async () => {
+    await db.apartments.delete(apartmentId);
+    await db.visits.where('apartmentId').equals(apartmentId).delete();
+  });
+}
+
+export async function updateApartment(apartmentId: string, updates: Partial<Apartment>): Promise<Apartment | undefined> {
+  const existing = await db.apartments.get(apartmentId);
+  if (!existing) return undefined;
+  const updated: Apartment = {
+    ...existing,
+    ...updates
+  };
+  await db.apartments.put(updated);
+  return updated;
+}
+

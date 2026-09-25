@@ -18,6 +18,9 @@ import {
   deleteBuilding, 
   deleteZone, 
   deleteTerritory, 
+  createApartment,
+  deleteApartment,
+  updateApartment,
   calculateCoverage, 
   getPendingSyncCount, 
   processSyncQueue 
@@ -384,6 +387,45 @@ export const App: React.FC = () => {
     showToast('✓ Territorio eliminado');
   };
 
+  const handleCreateApartment = async (data: { buildingId: string; unitNumber: string; floor: number; notes?: string }) => {
+    try {
+      await createApartment(data);
+      const apts = await getApartments(data.buildingId);
+      setSelectedBuildingApartments(apts);
+      await loadAllData();
+      showToast(`✓ Apto ${data.unitNumber} agregado`);
+    } catch (e) {
+      console.error('Error creating apartment:', e);
+      showToast('Error al crear apartamento');
+    }
+  };
+
+  const handleDeleteApartment = async (apartmentId: string, buildingId: string) => {
+    try {
+      await deleteApartment(apartmentId);
+      const apts = await getApartments(buildingId);
+      setSelectedBuildingApartments(apts);
+      await loadAllData();
+      showToast('✓ Apartamento eliminado');
+    } catch (e) {
+      console.error('Error deleting apartment:', e);
+      showToast('Error al eliminar apartamento');
+    }
+  };
+
+  const handleUpdateApartment = async (apartmentId: string, buildingId: string, updates: Partial<Apartment>) => {
+    try {
+      await updateApartment(apartmentId, updates);
+      const apts = await getApartments(buildingId);
+      setSelectedBuildingApartments(apts);
+      await loadAllData();
+      showToast('✓ Apartamento actualizado');
+    } catch (e) {
+      console.error('Error updating apartment:', e);
+      showToast('Error al actualizar apartamento');
+    }
+  };
+
   const handleTriggerSync = async () => {
     setIsSyncing(true);
     try {
@@ -516,6 +558,9 @@ export const App: React.FC = () => {
         onUpdateBuilding={handleUpdateBuilding}
         onDeleteBuilding={handleDeleteBuilding}
         onFlyToBuilding={(b) => handleFlyToLocation(b.center, 18.5)}
+        onCreateApartment={handleCreateApartment}
+        onDeleteApartment={handleDeleteApartment}
+        onUpdateApartment={handleUpdateApartment}
       />
 
       {/* Google Maps Bottom Sheet: Zone / Residential Details & Color Customization */}
