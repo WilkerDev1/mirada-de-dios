@@ -9,9 +9,14 @@ import {
   getBuildingRestrictions, 
   recordVisit, 
   createBuildingWithApartments, 
-  createZone,
-  createTerritory,
-  updateBuilding,
+  createZone, 
+  createTerritory, 
+  updateBuilding, 
+  updateZone, 
+  updateTerritory, 
+  deleteBuilding, 
+  deleteZone, 
+  deleteTerritory, 
   calculateCoverage, 
   getPendingSyncCount, 
   processSyncQueue 
@@ -26,19 +31,19 @@ import {
   CoverageMetrics, 
   BaseMapStyle, 
   LayerToggles, 
-  VisitResult,
-  DrawMode,
+  VisitResult, 
+  DrawMode, 
   AppMode 
 } from './types';
 import { Navbar } from './components/Navbar';
 import { MapView } from './components/MapView';
 import { TerritoryTree } from './components/TerritoryTree';
 import { DetailPanel } from './components/DetailPanel';
+import { ZoneSheet } from './components/ZoneSheet';
+import { TerritorySheet } from './components/TerritorySheet';
 import { LayerControl } from './components/LayerControl';
 import { CoverageStatusBar } from './components/CoverageStatusBar';
 import { GodsEyeHUD } from './components/GodsEyeHUD';
-import { BuildingCreationModal } from './components/BuildingCreationModal';
-import { ZoneCreationModal } from './components/ZoneCreationModal';
 import { CheckCircle2 } from 'lucide-react';
 
 export const App: React.FC = () => {
@@ -47,8 +52,12 @@ export const App: React.FC = () => {
   const [zones, setZones] = useState<Zone[]>([]);
   const [buildings, setBuildings] = useState<Building[]>([]);
   const [apartments, setApartments] = useState<Apartment[]>([]);
+
+  // Selected Entities
   const [selectedBuilding, setSelectedBuilding] = useState<Building | null>(null);
   const [selectedZone, setSelectedZone] = useState<Zone | null>(null);
+  const [selectedTerritory, setSelectedTerritory] = useState<Territory | null>(null);
+
   const [selectedBuildingApartments, setSelectedBuildingApartments] = useState<Apartment[]>([]);
   const [selectedBuildingVisits, setSelectedBuildingVisits] = useState<Visit[]>([]);
   const [selectedBuildingRestrictions, setSelectedBuildingRestrictions] = useState<Restriction[]>([]);
@@ -56,7 +65,6 @@ export const App: React.FC = () => {
   // Mode and drawing state
   const [appMode, setAppMode] = useState<AppMode>('BUILDINGS');
   const [drawMode, setDrawMode] = useState<DrawMode>('NONE');
-  const [drawnPolygon, setDrawnPolygon] = useState<number[][][] | null>(null);
 
   // Toast feedback
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -78,14 +86,12 @@ export const App: React.FC = () => {
 
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [createBuildingModalOpen, setCreateBuildingModalOpen] = useState(false);
-  const [createZoneModalOpen, setCreateZoneModalOpen] = useState(false);
   const [layerControlOpen, setLayerControlOpen] = useState(false);
   const [godsEyeMode, setGodsEyeMode] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-  // Map state
+  // Map state (Flat 2D by default: pitch 0)
   const [baseMap, setBaseMap] = useState<BaseMapStyle>('GOOGLE_HYBRID');
 
   const [layers, setLayers] = useState<LayerToggles>({
@@ -106,7 +112,7 @@ export const App: React.FC = () => {
   }>({
     center: [-69.8860, 18.4740],
     zoom: 16.5,
-    pitch: 35,
+    pitch: 0, // Flat 2D by default
     bearing: 0
   });
 
@@ -159,6 +165,7 @@ export const App: React.FC = () => {
 
   const handleSelectTerritory = async (t: Territory) => {
     setActiveTerritory(t);
+    setSelectedTerritory(t);
     setSelectedBuilding(null);
     setSelectedZone(null);
     await loadTerritoryData(t.id);
@@ -171,6 +178,8 @@ export const App: React.FC = () => {
 
   const handleSelectBuilding = async (building: Building) => {
     setSelectedBuilding(building);
+    setSelectedZone(null);
+    setSelectedTerritory(null);
     const apts = await getApartments(building.id);
     setSelectedBuildingApartments(apts);
     const vists = await getBuildingVisits(building.id);
@@ -180,13 +189,15 @@ export const App: React.FC = () => {
 
     setFlyToTarget({
       center: building.center,
-      zoom: 18,
+      zoom: 18.5,
       timestamp: Date.now()
     });
   };
 
   const handleSelectZone = (zone: Zone) => {
     setSelectedZone(zone);
+    setSelectedBuilding(null);
+    setSelectedTerritory(null);
     showToast(`Residencial seleccionado: ${zone.name}`);
     setFlyToTarget({
       center: zone.center,
@@ -221,12 +232,11 @@ export const App: React.FC = () => {
 
     const pending = await getPendingSyncCount();
     setPendingSyncCount(pending);
-    showToast('✓ Visita registrada en historial inmutable');
+    showToast('✓ Visita registrada');
   };
 
-  // Instant Quick-Create when drawing finishes!
+  // Google Maps Style Fast Drawing Creation
   const handleCompleteDrawing = async (polygon: number[][][], mode: DrawMode) => {
-    setDrawnPolygon(polygon);
     setDrawMode('NONE');
 
     // Calculate center
@@ -240,12 +250,10 @@ export const App: React.FC = () => {
     const center: [number, number] = [sumLon / ring.length, sumLat / ring.length];
 
     if (mode === 'DRAW_BUILDING_BOX' || mode === 'DRAW_BUILDING_POLYGON') {
-      // Instant Quick-Create Building directly on the map!
       if (!activeTerritory) return;
       const defaultZone = selectedZone || zones[0];
       if (!defaultZone) {
-        showToast('Debes crear primero un residencial o zona');
-        setCreateBuildingModalOpen(true);
+        showToast('Crea primero un residencial o zona');
         return;
       }
 
@@ -260,71 +268,111 @@ export const App: React.FC = () => {
         buildingType: 'RESIDENTIAL_BUILDING',
         floors: 3,
         accessType: 'INTERCOM',
-        unitsPerFloor: 2
+        unitsPerFloor: 2,
+        color: '#0d9488'
       });
 
       await loadTerritoryData(activeTerritory.id);
       const pending = await getPendingSyncCount();
       setPendingSyncCount(pending);
 
-      // Instantly select the newly created building so the user can inspect or edit it
       handleSelectBuilding(newBuilding);
-      showToast('✓ ¡Edificio creado en el mapa! Toca para editar detalles o registrar visitas.');
+      showToast('✓ Edificio creado. Personaliza su nombre o color en el panel inferior.');
 
     } else if (mode === 'DRAW_ZONE_BOX' || mode === 'DRAW_ZONE_POLYGON') {
-      // Open quick Residential modal with coordinates already locked in
-      setCreateZoneModalOpen(true);
+      if (!activeTerritory) return;
+      const zoneNum = zones.length + 1;
+      const newZone = await createZone({
+        territoryId: activeTerritory.id,
+        name: `Residencial #${zoneNum}`,
+        code: `RES-0${zoneNum}`,
+        color: '#6366f1',
+        center,
+        polygonCoordinates: polygon
+      });
+
+      await loadTerritoryData(activeTerritory.id);
+      handleSelectZone(newZone);
+      showToast('✓ Residencial creado. Ajusta su nombre y color en el panel inferior.');
+
     } else if (mode === 'DRAW_TERRITORY_POLYGON') {
-      // Quick create territory
       const terrCode = `SD-0${territories.length + 1}`;
       const newTerr = await createTerritory({
         congregationId: 'cong-sd-01',
         name: `Territorio ${terrCode}`,
         code: terrCode,
+        color: '#0284c7',
         center,
         polygonCoordinates: polygon
       });
       const terrs = await getTerritories();
       setTerritories(terrs);
       setActiveTerritory(newTerr);
+      setSelectedTerritory(newTerr);
       await loadTerritoryData(newTerr.id);
-      showToast(`✓ Territorio ${terrCode} creado con éxito`);
+      showToast(`✓ Territorio ${terrCode} creado con éxito.`);
     }
   };
 
   const handleUpdateBuilding = async (buildingId: string, updates: Partial<Building>) => {
     await updateBuilding(buildingId, updates);
-    if (activeTerritory) {
-      await loadTerritoryData(activeTerritory.id);
-    }
+    if (activeTerritory) await loadTerritoryData(activeTerritory.id);
     if (selectedBuilding && selectedBuilding.id === buildingId) {
       setSelectedBuilding(prev => prev ? { ...prev, ...updates } : null);
     }
-    showToast('✓ Datos del edificio actualizados');
+    showToast('✓ Edificio actualizado');
   };
 
-  const handleSaveBuilding = async (data: any) => {
-    const newBld = await createBuildingWithApartments(data);
-    setDrawnPolygon(null);
-    if (activeTerritory) {
-      await loadTerritoryData(activeTerritory.id);
-    }
-    const pending = await getPendingSyncCount();
-    setPendingSyncCount(pending);
-    handleSelectBuilding(newBld);
-    showToast('✓ Edificio guardado');
+  const handleDeleteBuilding = async (buildingId: string) => {
+    await deleteBuilding(buildingId);
+    if (activeTerritory) await loadTerritoryData(activeTerritory.id);
+    setSelectedBuilding(null);
+    showToast('✓ Edificio eliminado');
   };
 
-  const handleSaveZone = async (data: any) => {
-    const newZone = await createZone(data);
-    setDrawnPolygon(null);
-    if (activeTerritory) {
-      await loadTerritoryData(activeTerritory.id);
+  const handleUpdateZone = async (zoneId: string, updates: Partial<Zone>) => {
+    await updateZone(zoneId, updates);
+    if (activeTerritory) await loadTerritoryData(activeTerritory.id);
+    if (selectedZone && selectedZone.id === zoneId) {
+      setSelectedZone(prev => prev ? { ...prev, ...updates } : null);
     }
-    const pending = await getPendingSyncCount();
-    setPendingSyncCount(pending);
-    handleSelectZone(newZone);
-    showToast(`✓ Residencial ${newZone.name} registrado`);
+    showToast('✓ Residencial actualizado');
+  };
+
+  const handleDeleteZone = async (zoneId: string) => {
+    await deleteZone(zoneId);
+    if (activeTerritory) await loadTerritoryData(activeTerritory.id);
+    setSelectedZone(null);
+    showToast('✓ Residencial eliminado');
+  };
+
+  const handleUpdateTerritory = async (territoryId: string, updates: Partial<Territory>) => {
+    await updateTerritory(territoryId, updates);
+    const terrs = await getTerritories();
+    setTerritories(terrs);
+    if (activeTerritory && activeTerritory.id === territoryId) {
+      setActiveTerritory(prev => prev ? { ...prev, ...updates } : null);
+    }
+    if (selectedTerritory && selectedTerritory.id === territoryId) {
+      setSelectedTerritory(prev => prev ? { ...prev, ...updates } : null);
+    }
+    showToast('✓ Territorio actualizado');
+  };
+
+  const handleDeleteTerritory = async (territoryId: string) => {
+    await deleteTerritory(territoryId);
+    const terrs = await getTerritories();
+    setTerritories(terrs);
+    if (activeTerritory && activeTerritory.id === territoryId) {
+      if (terrs.length > 0) {
+        setActiveTerritory(terrs[0]);
+        await loadTerritoryData(terrs[0].id);
+      } else {
+        setActiveTerritory(null);
+      }
+    }
+    setSelectedTerritory(null);
+    showToast('✓ Territorio eliminado');
   };
 
   const handleTriggerSync = async () => {
@@ -333,7 +381,7 @@ export const App: React.FC = () => {
       await processSyncQueue();
       const pending = await getPendingSyncCount();
       setPendingSyncCount(pending);
-      showToast('✓ Base de datos sincronizada localmente');
+      showToast('✓ Sincronizado');
     } finally {
       setTimeout(() => setIsSyncing(false), 500);
     }
@@ -375,7 +423,15 @@ export const App: React.FC = () => {
         godsEyeMode={godsEyeMode}
         onToggleGodsEyeMode={() => setGodsEyeMode(!godsEyeMode)}
         appMode={appMode}
-        onSelectAppMode={setAppMode}
+        onSelectAppMode={(mode) => {
+          setAppMode(mode);
+          setDrawMode('NONE');
+          if (mode === 'TERRITORIES' && activeTerritory) {
+            setSelectedTerritory(activeTerritory);
+            setSelectedZone(null);
+            setSelectedBuilding(null);
+          }
+        }}
         onSetDrawMode={setDrawMode}
         currentDrawMode={drawMode}
         sidebarOpen={sidebarOpen}
@@ -398,6 +454,11 @@ export const App: React.FC = () => {
           selectedZone={selectedZone}
           onSelectBuilding={handleSelectBuilding}
           onSelectZone={handleSelectZone}
+          onSelectTerritory={(t) => {
+            setSelectedTerritory(t);
+            setSelectedZone(null);
+            setSelectedBuilding(null);
+          }}
           onViewportChange={setMapViewport}
           flyToLocation={flyToTarget}
           drawMode={drawMode}
@@ -427,18 +488,61 @@ export const App: React.FC = () => {
         selectedBuildingId={selectedBuilding?.id || null}
         onSelectBuilding={handleSelectBuilding}
         onFlyToZone={(z) => handleFlyToLocation(z.center, 16.5)}
-        onOpenCreateZone={() => setCreateZoneModalOpen(true)}
+        onOpenCreateZone={() => {
+          setAppMode('ZONES');
+          setDrawMode('DRAW_ZONE_BOX');
+          showToast('Dibuja un cuadro en el mapa para el nuevo residencial');
+        }}
       />
 
-      {/* Bottom Sheet Building Details & Editing */}
+      {/* Google Maps Bottom Sheet: Building Details, Visits & Color Customization */}
       <DetailPanel
         building={selectedBuilding}
         apartments={selectedBuildingApartments}
         visits={selectedBuildingVisits}
         restrictions={selectedBuildingRestrictions}
+        zones={zones}
         onClose={() => setSelectedBuilding(null)}
         onRecordVisit={handleRecordVisit}
         onUpdateBuilding={handleUpdateBuilding}
+        onDeleteBuilding={handleDeleteBuilding}
+        onFlyToBuilding={(b) => handleFlyToLocation(b.center, 18.5)}
+      />
+
+      {/* Google Maps Bottom Sheet: Zone / Residential Details & Color Customization */}
+      <ZoneSheet
+        zone={selectedZone}
+        territory={activeTerritory}
+        buildingsInZone={buildings.filter(b => b.zoneId === selectedZone?.id)}
+        onClose={() => setSelectedZone(null)}
+        onUpdateZone={handleUpdateZone}
+        onDeleteZone={handleDeleteZone}
+        onFlyToZone={(z) => handleFlyToLocation(z.center, 16.5)}
+        onStartDrawBuildingInZone={(z) => {
+          setSelectedZone(z);
+          setAppMode('BUILDINGS');
+          setDrawMode('DRAW_BUILDING_BOX');
+          showToast(`Dibuja un edificio en ${z.name}`);
+        }}
+        onSelectBuilding={handleSelectBuilding}
+      />
+
+      {/* Google Maps Bottom Sheet: Territory Details & Color Customization */}
+      <TerritorySheet
+        territory={selectedTerritory}
+        zonesInTerritory={zones.filter(z => z.territoryId === selectedTerritory?.id)}
+        buildingsInTerritory={buildings.filter(b => b.territoryId === selectedTerritory?.id)}
+        metrics={metrics}
+        onClose={() => setSelectedTerritory(null)}
+        onUpdateTerritory={handleUpdateTerritory}
+        onDeleteTerritory={handleDeleteTerritory}
+        onFlyToTerritory={(t) => handleFlyToLocation(t.center, 15.5)}
+        onStartDrawZone={() => {
+          setAppMode('ZONES');
+          setDrawMode('DRAW_ZONE_BOX');
+          showToast('Dibuja un cuadro en el mapa para el nuevo residencial');
+        }}
+        onSelectZone={handleSelectZone}
       />
 
       {/* Floating Layer Control with Google Maps Styles */}
@@ -456,42 +560,11 @@ export const App: React.FC = () => {
         activeTerritory={activeTerritory}
         metrics={metrics}
         onOpenCreateBuilding={() => {
-          setDrawnPolygon(null);
-          setCreateBuildingModalOpen(true);
+          setAppMode('BUILDINGS');
+          setDrawMode('DRAW_BUILDING_BOX');
+          showToast('Toca 2 esquinas en el mapa para crear el edificio');
         }}
         pendingSyncCount={pendingSyncCount}
-      />
-
-      {/* Modal: Create Building Manually */}
-      <BuildingCreationModal
-        isOpen={createBuildingModalOpen}
-        onClose={() => {
-          setCreateBuildingModalOpen(false);
-          setDrawnPolygon(null);
-        }}
-        activeTerritory={activeTerritory}
-        zones={zones}
-        mapCenter={mapViewport.center}
-        initialPolygon={drawnPolygon}
-        onSaveBuilding={handleSaveBuilding}
-      />
-
-      {/* Modal: Create Zone / Residential */}
-      <ZoneCreationModal
-        isOpen={createZoneModalOpen}
-        onClose={() => {
-          setCreateZoneModalOpen(false);
-          setDrawnPolygon(null);
-        }}
-        activeTerritory={activeTerritory}
-        polygonCoordinates={drawnPolygon || [[
-          [-69.8880, 18.4730],
-          [-69.8840, 18.4730],
-          [-69.8840, 18.4760],
-          [-69.8880, 18.4760],
-          [-69.8880, 18.4730]
-        ]]}
-        onSaveZone={handleSaveZone}
       />
     </div>
   );

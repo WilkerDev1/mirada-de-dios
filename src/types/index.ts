@@ -84,6 +84,7 @@ export interface Building {
   buildingType: BuildingType;
   floors: number;
   accessType: AccessType;
+  color?: string; // Hex color for custom building/house styling
   notes?: string;
   archivedAt?: string | null;
   createdAt: string;

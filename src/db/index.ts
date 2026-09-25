@@ -184,6 +184,7 @@ export async function createBuildingWithApartments(data: {
   floors: number;
   accessType: Building['accessType'];
   unitsPerFloor: number;
+  color?: string;
   notes?: string;
 }): Promise<Building> {
   const now = new Date().toISOString();
@@ -205,6 +206,7 @@ export async function createBuildingWithApartments(data: {
     buildingType: data.buildingType,
     floors: data.floors,
     accessType: data.accessType,
+    color: data.color,
     notes: data.notes,
     createdAt: now,
     updatedAt: now
@@ -405,7 +407,7 @@ export async function createTerritory(data: {
     name: data.name,
     code: data.code,
     center: data.center,
-    color: data.color || '#0d9488',
+    color: data.color || '#0284c7',
     geometry: {
       type: 'Polygon',
       coordinates: data.polygonCoordinates
@@ -416,4 +418,56 @@ export async function createTerritory(data: {
   };
   await db.territories.add(newTerr);
   return newTerr;
+}
+
+export async function updateTerritory(territoryId: string, updates: Partial<Territory>): Promise<Territory | undefined> {
+  const existing = await db.territories.get(territoryId);
+  if (!existing) return undefined;
+  const updated: Territory = {
+    ...existing,
+    ...updates,
+    updatedAt: new Date().toISOString()
+  };
+  await db.territories.put(updated);
+  return updated;
+}
+
+export async function updateZone(zoneId: string, updates: Partial<Zone>): Promise<Zone | undefined> {
+  const existing = await db.zones.get(zoneId);
+  if (!existing) return undefined;
+  const updated: Zone = {
+    ...existing,
+    ...updates
+  };
+  await db.zones.put(updated);
+  return updated;
+}
+
+export async function deleteBuilding(buildingId: string): Promise<void> {
+  await db.transaction('rw', [db.buildings, db.apartments, db.visits, db.syncQueue], async () => {
+    await db.buildings.delete(buildingId);
+    await db.apartments.where('buildingId').equals(buildingId).delete();
+    await db.visits.where('buildingId').equals(buildingId).delete();
+  });
+}
+
+export async function deleteZone(zoneId: string): Promise<void> {
+  await db.transaction('rw', [db.zones, db.buildings, db.apartments], async () => {
+    const blds = await db.buildings.where('zoneId').equals(zoneId).toArray();
+    for (const b of blds) {
+      await db.apartments.where('buildingId').equals(b.id).delete();
+      await db.buildings.delete(b.id);
+    }
+    await db.zones.delete(zoneId);
+  });
+}
+
+export async function deleteTerritory(territoryId: string): Promise<void> {
+  await db.transaction('rw', [db.territories, db.zones, db.buildings, db.apartments], async () => {
+    const zones = await db.zones.where('territoryId').equals(territoryId).toArray();
+    for (const z of zones) {
+      await deleteZone(z.id);
+    }
+    await db.territories.delete(territoryId);
+  });
 }

@@ -13,15 +13,19 @@ import {
   ChevronUp,
   Edit2,
   Save,
-  Trash2
+  Trash2,
+  Navigation,
+  CheckCircle2
 } from 'lucide-react';
-import { Building, Apartment, Visit, Restriction, VisitResult, ApartmentStatus, AccessType, BuildingType } from '../types';
+import { Building, Apartment, Visit, Restriction, VisitResult, ApartmentStatus, AccessType, Zone } from '../types';
+import { ColorPickerBar } from './ColorPickerBar';
 
 interface DetailPanelProps {
   building: Building | null;
   apartments: Apartment[];
   visits: Visit[];
   restrictions: Restriction[];
+  zones?: Zone[];
   onClose: () => void;
   onRecordVisit: (data: {
     apartmentId: string;
@@ -30,6 +34,8 @@ interface DetailPanelProps {
     note?: string;
   }) => Promise<void>;
   onUpdateBuilding?: (buildingId: string, updates: Partial<Building>) => Promise<void>;
+  onDeleteBuilding?: (buildingId: string) => Promise<void>;
+  onFlyToBuilding?: (building: Building) => void;
 }
 
 export const DetailPanel: React.FC<DetailPanelProps> = ({
@@ -37,9 +43,12 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   apartments,
   visits,
   restrictions,
+  zones = [],
   onClose,
   onRecordVisit,
-  onUpdateBuilding
+  onUpdateBuilding,
+  onDeleteBuilding,
+  onFlyToBuilding
 }) => {
   const [activeTab, setActiveTab] = useState<'UNITS' | 'HISTORY' | 'INFO'>('UNITS');
   const [selectedApartment, setSelectedApartment] = useState<Apartment | null>(null);
@@ -53,6 +62,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   const [editName, setEditName] = useState(building?.name || '');
   const [editAddress, setEditAddress] = useState(building?.address || '');
   const [editFloors, setEditFloors] = useState(building?.floors || 4);
+  const [editZoneId, setEditZoneId] = useState(building?.zoneId || '');
   const [editAccessType, setEditAccessType] = useState<AccessType>(building?.accessType || 'INTERCOM');
 
   // Sync edit fields when building changes
@@ -61,8 +71,10 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
       setEditName(building.name);
       setEditAddress(building.address);
       setEditFloors(building.floors);
+      setEditZoneId(building.zoneId);
       setEditAccessType(building.accessType);
       setIsEditing(false);
+      setSelectedApartment(null);
     }
   }, [building]);
 
@@ -95,12 +107,31 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
         name: editName.trim() || building.name,
         address: editAddress.trim() || building.address,
         floors: Number(editFloors) || building.floors,
+        zoneId: editZoneId || building.zoneId,
         accessType: editAccessType
       });
       setIsEditing(false);
     } catch (err) {
       console.error('Error updating building:', err);
-      alert('Error al guardar modificaciones del edificio');
+    }
+  };
+
+  const handleColorChange = async (color: string) => {
+    if (onUpdateBuilding) {
+      await onUpdateBuilding(building.id, { color });
+    }
+  };
+
+  const handleResetColor = async () => {
+    if (onUpdateBuilding) {
+      await onUpdateBuilding(building.id, { color: undefined });
+    }
+  };
+
+  const handleDelete = async () => {
+    if (onDeleteBuilding && confirm(`¿Estás seguro de eliminar "${building.name}"?`)) {
+      await onDeleteBuilding(building.id);
+      onClose();
     }
   };
 
@@ -139,13 +170,15 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
     }
   };
 
+  const currentZone = zones.find(z => z.id === building.zoneId);
+
   return (
     <aside 
       className={`fixed z-40 transition-all duration-300 select-none
         /* Mobile: Bottom Sheet */
-        bottom-0 left-0 right-0 max-h-[85vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.7)] rounded-t-3xl flex flex-col
-        /* Desktop: Right Slide-over */
-        sm:top-14 sm:bottom-12 sm:right-0 sm:left-auto sm:w-96 sm:rounded-none sm:border-t-0 sm:border-l sm:max-h-none sm:shadow-2xl
+        bottom-0 left-0 right-0 max-h-[78vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.7)] rounded-t-3xl flex flex-col
+        /* Desktop: Floating Google Maps card */
+        sm:bottom-4 sm:right-4 sm:top-auto sm:left-auto sm:w-96 sm:rounded-2xl sm:border sm:max-h-[85vh]
       `}
     >
       {/* Mobile Drag Handle */}
@@ -157,13 +190,19 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
       </div>
 
       {/* Header */}
-      <div className="px-4 py-2 border-b border-slate-800/80 flex items-start justify-between">
+      <div className="px-4 py-2.5 border-b border-slate-800/80 flex items-start justify-between">
         <div className="flex-1 pr-2 truncate">
           {!isEditing ? (
             <>
               <div className="flex items-center gap-1.5 text-xs text-teal-400 font-mono-tactical font-medium">
-                <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
+                <span 
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: building.color || '#2dd4bf' }}
+                />
                 <span className="truncate">{getAccessLabel(building.accessType)} · {building.floors} Pisos</span>
+                {currentZone && (
+                  <span className="text-slate-400 truncate">· {currentZone.name}</span>
+                )}
               </div>
               <h2 className="text-base font-bold text-slate-100 truncate mt-0.5">{building.name}</h2>
               <div className="flex items-center gap-1 text-xs text-slate-400 mt-0.5 truncate">
@@ -177,7 +216,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                 type="text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                placeholder="Nombre del edificio"
+                placeholder="Nombre del edificio / inmueble"
                 className="w-full p-1.5 rounded-lg bg-slate-900 border border-teal-500 text-xs text-white"
               />
               <input
@@ -187,6 +226,19 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                 placeholder="Dirección"
                 className="w-full p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200"
               />
+              {zones.length > 0 && (
+                <select
+                  value={editZoneId}
+                  onChange={(e) => setEditZoneId(e.target.value)}
+                  className="w-full p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-300"
+                >
+                  {zones.map(z => (
+                    <option key={z.id} value={z.id}>
+                      Residencial: {z.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           )}
         </div>
@@ -214,7 +266,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
-            title="Cerrar panel"
+            title="Cerrar"
           >
             <X className="w-5 h-5" />
           </button>
@@ -223,20 +275,38 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
 
       {isExpandedMobile && (
         <>
-          {/* Restrictions / Alerts Banner */}
-          {restrictions.length > 0 && (
-            <div className="mx-3 mt-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
-              <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-              <div>
-                <div className="font-semibold text-amber-300">Restricción activa:</div>
-                {restrictions.map(r => (
-                  <div key={r.id} className="text-[11px] text-amber-200/90 mt-0.5">
-                    • {r.description}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Quick Action Chips (Google Maps style) */}
+          <div className="px-3 pt-2 pb-1 flex items-center gap-2 overflow-x-auto no-scrollbar">
+            {onFlyToBuilding && (
+              <button
+                onClick={() => onFlyToBuilding(building)}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium whitespace-nowrap border border-slate-700 transition-all"
+              >
+                <Navigation className="w-3 h-3 text-teal-400" />
+                <span>Centrar</span>
+              </button>
+            )}
+
+            {onDeleteBuilding && (
+              <button
+                onClick={handleDelete}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-300 text-xs font-medium whitespace-nowrap border border-red-500/30 transition-all ml-auto"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Eliminar</span>
+              </button>
+            )}
+          </div>
+
+          {/* Color Customization */}
+          <div className="px-3">
+            <ColorPickerBar
+              currentColor={building.color}
+              onSelectColor={handleColorChange}
+              onResetColor={handleResetColor}
+              label="Color del Edificio / Casa"
+            />
+          </div>
 
           {/* Navigation Tabs */}
           <div className="flex items-center border-b border-slate-800 px-3 pt-1 text-xs font-medium gap-1 flex-shrink-0">
@@ -249,7 +319,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
               }`}
             >
               <DoorOpen className="w-3.5 h-3.5" />
-              <span>Aptos ({apartments.length})</span>
+              <span>Unidades ({apartments.length})</span>
             </button>
 
             <button
@@ -261,7 +331,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
               }`}
             >
               <History className="w-3.5 h-3.5" />
-              <span>Historial ({visits.length})</span>
+              <span>Visitas ({visits.length})</span>
             </button>
 
             <button
@@ -273,7 +343,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
               }`}
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Detalles</span>
+              <span>Info</span>
             </button>
           </div>
 
@@ -282,7 +352,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
             {activeTab === 'UNITS' && (
               <div className="space-y-3">
                 {/* Status Legend */}
-                <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-[10px] sm:text-[11px] font-mono-tactical">
+                <div className="flex flex-wrap items-center gap-2 p-2 rounded-xl bg-slate-900/80 border border-slate-800 text-[10px] font-mono-tactical">
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-400" /> Contactado</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Sin resp.</span>
                   <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" /> Pendiente</span>
@@ -290,12 +360,12 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                 </div>
 
                 {/* Units Grid */}
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                   {apartments.map(apt => (
                     <button
                       key={apt.id}
                       onClick={() => setSelectedApartment(apt)}
-                      className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all min-h-[56px] active:scale-95 ${
+                      className={`p-2 rounded-xl border text-left flex flex-col justify-between transition-all min-h-[50px] active:scale-95 ${
                         selectedApartment?.id === apt.id
                           ? 'ring-2 ring-teal-400 bg-teal-500/30 border-teal-400'
                           : getStatusColor(apt.calculatedStatus)
@@ -305,20 +375,20 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                         <span className="font-bold text-xs font-mono-tactical">{apt.unitNumber}</span>
                         <span className={`w-2 h-2 rounded-full ${getStatusDot(apt.calculatedStatus)}`} />
                       </div>
-                      <div className="text-[10px] opacity-80 mt-1">
+                      <div className="text-[10px] opacity-80 mt-0.5">
                         Piso {apt.floor}
                       </div>
                     </button>
                   ))}
                 </div>
 
-                {/* Visit Registration Form (Inline Drawer) */}
+                {/* Visit Registration Form (Inline Clean Drawer) */}
                 {selectedApartment && (
-                  <div className="mt-3 p-3.5 rounded-2xl bg-slate-900 border border-teal-500/40 shadow-2xl space-y-3 animate-in fade-in">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                  <div className="mt-2 p-3 rounded-2xl bg-slate-900 border border-teal-500/50 shadow-2xl space-y-2.5 animate-in fade-in">
+                    <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-teal-300">
                         <UserCheck className="w-4 h-4 text-teal-400" />
-                        <span>Registrar Visita · Apto {selectedApartment.unitNumber}</span>
+                        <span>Apto {selectedApartment.unitNumber} · Registrar Visita</span>
                       </div>
                       <button
                         onClick={() => setSelectedApartment(null)}
@@ -332,7 +402,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => setVisitResult('CONTACTED')}
-                        className={`p-2.5 rounded-xl border text-left font-medium transition-all ${
+                        className={`p-2 rounded-xl border text-left font-medium transition-all ${
                           visitResult === 'CONTACTED'
                             ? 'bg-emerald-500/30 border-emerald-500 text-emerald-200 ring-1 ring-emerald-500'
                             : 'bg-slate-800/80 border-slate-700 text-slate-300'
@@ -344,7 +414,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => setVisitResult('NO_ANSWER')}
-                        className={`p-2.5 rounded-xl border text-left font-medium transition-all ${
+                        className={`p-2 rounded-xl border text-left font-medium transition-all ${
                           visitResult === 'NO_ANSWER'
                             ? 'bg-amber-500/30 border-amber-500 text-amber-200 ring-1 ring-amber-500'
                             : 'bg-slate-800/80 border-slate-700 text-slate-300'
@@ -356,19 +426,19 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                       <button
                         type="button"
                         onClick={() => setVisitResult('ACCESS_PROBLEM')}
-                        className={`p-2.5 rounded-xl border text-left font-medium transition-all ${
+                        className={`p-2 rounded-xl border text-left font-medium transition-all ${
                           visitResult === 'ACCESS_PROBLEM'
                             ? 'bg-red-500/30 border-red-500 text-red-200 ring-1 ring-red-500'
                             : 'bg-slate-800/80 border-slate-700 text-slate-300'
                         }`}
                       >
-                        🔴 Problema acceso
+                        🔴 No acceso
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setVisitResult('REFUSED')}
-                        className={`p-2.5 rounded-xl border text-left font-medium transition-all ${
+                        className={`p-2 rounded-xl border text-left font-medium transition-all ${
                           visitResult === 'REFUSED'
                             ? 'bg-purple-500/30 border-purple-500 text-purple-200 ring-1 ring-purple-500'
                             : 'bg-slate-800/80 border-slate-700 text-slate-300'
@@ -382,18 +452,18 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                       value={visitNote}
                       onChange={(e) => setVisitNote(e.target.value)}
                       rows={2}
-                      placeholder="Nota rápida de la visita (opcional)..."
-                      className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:border-teal-500 text-xs text-slate-200 placeholder-slate-600 focus:outline-none"
+                      placeholder="Nota breve (opcional)..."
+                      className="w-full p-2 rounded-xl bg-slate-950 border border-slate-800 focus:border-teal-500 text-xs text-slate-200 placeholder-slate-600 focus:outline-none"
                     />
 
                     <button
                       type="button"
                       disabled={isSubmitting}
                       onClick={handleSaveVisit}
-                      className="w-full py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 font-bold text-xs text-white flex items-center justify-center gap-1.5 shadow-lg shadow-teal-900/40 transition-all active:scale-98"
+                      className="w-full py-2 px-3 rounded-xl bg-teal-600 hover:bg-teal-500 disabled:bg-teal-800 font-bold text-xs text-white flex items-center justify-center gap-1.5 shadow-lg shadow-teal-900/40 transition-all active:scale-98"
                     >
                       <Send className="w-3.5 h-3.5" />
-                      <span>{isSubmitting ? 'Guardando...' : 'Registrar Visita'}</span>
+                      <span>{isSubmitting ? 'Guardando...' : 'Guardar Visita'}</span>
                     </button>
                   </div>
                 )}
@@ -408,20 +478,20 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                   </div>
                 ) : (
                   visits.map(v => (
-                    <div key={v.id} className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
+                    <div key={v.id} className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="font-semibold text-slate-200">
                           {v.result === 'CONTACTED' && '🟢 Contactado'}
                           {v.result === 'NO_ANSWER' && '🟠 Sin respuesta'}
-                          {v.result === 'ACCESS_PROBLEM' && '🔴 Problema de acceso'}
+                          {v.result === 'ACCESS_PROBLEM' && '🔴 Problema acceso'}
                           {v.result === 'REFUSED' && '⛔ Rechazado'}
-                          {v.result === 'NOT_HOME' && '🟡 No estaba en casa'}
+                          {v.result === 'NOT_HOME' && '🟡 No estaba'}
                           {v.result === 'OTHER' && '⚪ Otro'}
                         </span>
                         <span className="text-[10px] font-mono-tactical text-slate-400">
-                          {new Date(v.visitedAt).toLocaleString('es-DO', {
-                            dateStyle: 'short',
-                            timeStyle: 'short'
+                          {new Date(v.visitedAt).toLocaleDateString('es-DO', {
+                            month: 'short',
+                            day: 'numeric'
                           })}
                         </span>
                       </div>
@@ -430,10 +500,6 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                           "{v.note}"
                         </p>
                       )}
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono-tactical pt-1 border-t border-slate-800/40">
-                        <span>Usuario: {v.userId}</span>
-                        <span>Op: {v.operationId.substring(0, 14)}...</span>
-                      </div>
                     </div>
                   ))
                 )}
@@ -441,7 +507,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
             )}
 
             {activeTab === 'INFO' && (
-              <div className="space-y-3 text-xs">
+              <div className="space-y-2.5 text-xs">
                 <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
                   <div>
                     <span className="text-slate-400 block text-[11px]">Tipo de estructura</span>
@@ -457,17 +523,10 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                   </div>
                   {building.notes && (
                     <div>
-                      <span className="text-slate-400 block text-[11px]">Notas operativas</span>
+                      <span className="text-slate-400 block text-[11px]">Notas</span>
                       <p className="text-slate-300 mt-0.5">{building.notes}</p>
                     </div>
                   )}
-                </div>
-
-                <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 font-mono-tactical text-[11px] space-y-1 text-slate-400">
-                  <div className="text-slate-300 font-bold uppercase">Georreferencia:</div>
-                  <div>Lat: {building.center[1].toFixed(6)}° N</div>
-                  <div>Lon: {building.center[0].toFixed(6)}° W</div>
-                  <div>ID: {building.id}</div>
                 </div>
               </div>
             )}
