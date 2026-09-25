@@ -91,8 +91,8 @@ export const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-  // Map state (Flat 2D by default: pitch 0)
-  const [baseMap, setBaseMap] = useState<BaseMapStyle>('GOOGLE_HYBRID');
+  // Map state (Flat 2D by default: pitch 0 on Google Streets)
+  const [baseMap, setBaseMap] = useState<BaseMapStyle>('GOOGLE_STREETS');
 
   const [layers, setLayers] = useState<LayerToggles>({
     territorial: true,
