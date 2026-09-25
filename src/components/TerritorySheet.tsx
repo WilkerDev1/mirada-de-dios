@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Territory, Zone, Building, CoverageMetrics } from '../types';
 import { ColorPickerBar } from './ColorPickerBar';
+import { useBottomSheetDrag } from '../hooks/useBottomSheetDrag';
 
 interface TerritorySheetProps {
   territory: Territory | null;
@@ -44,7 +45,21 @@ export const TerritorySheet: React.FC<TerritorySheetProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState(territory?.name || '');
   const [editCode, setEditCode] = useState(territory?.code || '');
-  const [isExpandedMobile, setIsExpandedMobile] = useState(true);
+
+  const {
+    panelRef,
+    isMobile,
+    isExpanded: isExpandedMobile,
+    isDragging,
+    sheetHeight,
+    toggleExpand,
+    expand,
+    handlePointerDown,
+    handleHeaderPointerDown,
+  } = useBottomSheetDrag({
+    collapsedHeight: 100,
+    resetDependency: territory?.id,
+  });
 
   React.useEffect(() => {
     if (territory) {
@@ -77,23 +92,30 @@ export const TerritorySheet: React.FC<TerritorySheetProps> = ({
 
   return (
     <aside
-      className={`fixed z-40 transition-all duration-300 select-none
+      ref={panelRef as React.RefObject<HTMLDivElement>}
+      style={isMobile ? { height: `${sheetHeight}px` } : undefined}
+      className={`fixed z-40 select-none overflow-hidden flex flex-col
         /* Mobile: Bottom Sheet docked at bottom */
-        bottom-0 left-0 right-0 max-h-[75vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.7)] rounded-t-3xl flex flex-col
+        bottom-0 left-0 right-0 max-h-[85vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.7)] rounded-t-3xl
         /* Desktop: Floating Google Maps card */
-        md:top-20 md:bottom-14 md:right-4 md:left-auto md:w-96 lg:w-[420px] md:rounded-2xl md:border md:max-h-[calc(100vh-140px)]
+        md:top-20 md:bottom-14 md:right-4 md:left-auto md:w-96 lg:w-[420px] md:rounded-2xl md:border md:max-h-[calc(100vh-140px)] md:!h-auto
       `}
     >
       {/* Mobile Handle */}
       <div 
-        onClick={() => setIsExpandedMobile(!isExpandedMobile)}
-        className="md:hidden w-full pt-3 pb-1 flex flex-col items-center justify-center cursor-pointer"
+        onPointerDown={handlePointerDown}
+        onClick={toggleExpand}
+        className="md:hidden w-full pt-2.5 pb-1.5 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none active:opacity-80"
+        title="Arrastra para expandir o contraer"
       >
-        <div className="w-12 h-1.5 rounded-full bg-slate-600" />
+        <div className="w-12 h-1.5 rounded-full bg-slate-600 hover:bg-slate-500 transition-colors" />
       </div>
 
       {/* Header */}
-      <div className="px-4 py-3 border-b border-slate-800 flex items-start justify-between">
+      <div 
+        onPointerDown={handleHeaderPointerDown}
+        className="px-4 py-2.5 border-b border-slate-800 flex items-start justify-between flex-shrink-0 touch-none select-none md:select-auto"
+      >
         <div className="flex-1 pr-2 truncate">
           {!isEditing ? (
             <>
@@ -129,8 +151,12 @@ export const TerritorySheet: React.FC<TerritorySheetProps> = ({
         <div className="flex items-center gap-1">
           <button
             onClick={() => {
-              if (isEditing) handleSaveEdits();
-              else setIsEditing(true);
+              if (isEditing) {
+                handleSaveEdits();
+              } else {
+                setIsEditing(true);
+                expand();
+              }
             }}
             className={`p-1.5 rounded-lg transition-colors ${isEditing ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
             title={isEditing ? 'Guardar' : 'Editar'}
@@ -139,8 +165,9 @@ export const TerritorySheet: React.FC<TerritorySheetProps> = ({
           </button>
 
           <button
-            onClick={() => setIsExpandedMobile(!isExpandedMobile)}
-            className="sm:hidden p-1.5 rounded-lg text-slate-400 hover:text-white"
+            onClick={toggleExpand}
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white"
+            title={isExpandedMobile ? 'Contraer panel' : 'Expandir panel'}
           >
             {isExpandedMobile ? <ChevronDown className="w-5 h-5" /> : <ChevronUp className="w-5 h-5" />}
           </button>
@@ -154,8 +181,7 @@ export const TerritorySheet: React.FC<TerritorySheetProps> = ({
         </div>
       </div>
 
-      {isExpandedMobile && (
-        <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 text-xs">
+      <div className={`flex-1 overflow-y-auto min-h-0 p-3.5 space-y-3.5 text-xs ${!isExpandedMobile && isMobile && !isDragging ? 'pointer-events-none' : ''}`}>
           {/* Color Customization */}
           <ColorPickerBar
             currentColor={territory.color || '#0284c7'}
@@ -244,7 +270,6 @@ export const TerritorySheet: React.FC<TerritorySheetProps> = ({
             )}
           </div>
         </div>
-      )}
-    </aside>
-  );
-};
+      </aside>
+    );
+  };

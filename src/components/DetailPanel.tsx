@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { Building, Apartment, Visit, Restriction, VisitResult, ApartmentStatus, AccessType, Zone } from '../types';
 import { ColorPickerBar } from './ColorPickerBar';
+import { useBottomSheetDrag } from '../hooks/useBottomSheetDrag';
 
 interface DetailPanelProps {
   building: Building | null;
@@ -69,8 +70,22 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   const [visitResult, setVisitResult] = useState<VisitResult>('CONTACTED');
   const [visitNote, setVisitNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isExpandedMobile, setIsExpandedMobile] = useState(true);
   const [showColorPicker, setShowColorPicker] = useState(false);
+
+  const {
+    panelRef,
+    isMobile,
+    isExpanded: isExpandedMobile,
+    isDragging,
+    sheetHeight,
+    toggleExpand,
+    expand,
+    handlePointerDown,
+    handleHeaderPointerDown,
+  } = useBottomSheetDrag({
+    collapsedHeight: 100,
+    resetDependency: building?.id,
+  });
 
   // Edit Building state
   const [isEditingBuilding, setIsEditingBuilding] = useState(false);
@@ -329,23 +344,30 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
 
   return (
     <aside 
-      className={`fixed z-40 transition-all duration-200 ease-out select-none
+      ref={panelRef as React.RefObject<HTMLDivElement>}
+      style={isMobile ? { height: `${sheetHeight}px` } : undefined}
+      className={`fixed z-40 select-none overflow-hidden flex flex-col
         /* Mobile (< 768px): Bottom Sheet with compact max-height to keep map context visible */
-        bottom-0 left-0 right-0 max-h-[70vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.8)] rounded-t-3xl flex flex-col
+        bottom-0 left-0 right-0 max-h-[85vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.8)] rounded-t-3xl
         /* Desktop (>= 768px): Floating Google Maps card with spacious desktop layout */
-        md:top-20 md:bottom-14 md:right-4 md:left-auto md:w-96 lg:w-[420px] md:rounded-2xl md:border md:max-h-[calc(100vh-140px)]
+        md:top-20 md:bottom-14 md:right-4 md:left-auto md:w-96 lg:w-[420px] md:rounded-2xl md:border md:max-h-[calc(100vh-140px)] md:!h-auto
       `}
     >
       {/* Mobile Drag Handle */}
       <div 
-        onClick={() => setIsExpandedMobile(!isExpandedMobile)}
-        className="md:hidden w-full pt-2.5 pb-1 flex flex-col items-center justify-center cursor-pointer active:opacity-70"
+        onPointerDown={handlePointerDown}
+        onClick={toggleExpand}
+        className="md:hidden w-full pt-2.5 pb-1.5 flex flex-col items-center justify-center cursor-grab active:cursor-grabbing touch-none select-none active:opacity-80"
+        title="Arrastra para expandir o contraer"
       >
-        <div className="w-10 h-1 rounded-full bg-slate-600 hover:bg-slate-500 transition-colors" />
+        <div className="w-12 h-1.5 rounded-full bg-slate-600 hover:bg-slate-500 transition-colors" />
       </div>
 
       {/* Header */}
-      <div className="px-4 py-2 border-b border-slate-800/80 flex items-start justify-between">
+      <div 
+        onPointerDown={handleHeaderPointerDown}
+        className="px-4 py-2 border-b border-slate-800/80 flex items-start justify-between flex-shrink-0 touch-none select-none md:select-auto"
+      >
         <div className="flex-1 pr-2 truncate">
           {!isEditingBuilding ? (
             <>
@@ -430,8 +452,12 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
           {onUpdateBuilding && (
             <button
               onClick={() => {
-                if (isEditingBuilding) handleSaveBuildingEdits();
-                else setIsEditingBuilding(true);
+                if (isEditingBuilding) {
+                  handleSaveBuildingEdits();
+                } else {
+                  setIsEditingBuilding(true);
+                  expand();
+                }
               }}
               className={`p-1.5 rounded-lg transition-colors ${isEditingBuilding ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
               title={isEditingBuilding ? 'Guardar cambios' : 'Editar inmueble'}
@@ -441,8 +467,9 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
           )}
 
           <button
-            onClick={() => setIsExpandedMobile(!isExpandedMobile)}
-            className="sm:hidden p-1.5 rounded-lg text-slate-400 hover:text-white"
+            onClick={toggleExpand}
+            className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white"
+            title={isExpandedMobile ? 'Contraer panel' : 'Expandir panel'}
           >
             {isExpandedMobile ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
           </button>
@@ -456,8 +483,8 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
         </div>
       </div>
 
-      {isExpandedMobile && (
-        <>
+      {/* Body Content Container */}
+      <div className={`flex-1 flex flex-col min-h-0 ${!isExpandedMobile && isMobile && !isDragging ? 'pointer-events-none' : ''}`}>
           {/* Quick Action Chips Bar */}
           <div className="px-3 pt-2 pb-1.5 flex items-center gap-2 overflow-x-auto no-scrollbar flex-shrink-0">
             {onFlyToBuilding && (
@@ -1017,8 +1044,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
               </div>
             )}
           </div>
-        </>
-      )}
-    </aside>
-  );
-};
+        </div>
+      </aside>
+    );
+  };
