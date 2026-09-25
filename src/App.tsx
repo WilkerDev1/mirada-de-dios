@@ -121,6 +121,40 @@ export const App: React.FC = () => {
     bearing: 0
   });
 
+  // Prevent accidental browser page zoom (Ctrl+Wheel, trackpad pinch, Ctrl+Plus/Minus)
+  // This ensures ONLY the map camera zooms, preventing DOM UI elements from expanding / breaking.
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '=' || e.key === '0')) {
+        e.preventDefault();
+      }
+    };
+
+    const handleGesture = (e: Event) => {
+      e.preventDefault();
+    };
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('gesturestart', handleGesture);
+    window.addEventListener('gesturechange', handleGesture);
+    window.addEventListener('gestureend', handleGesture);
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('gesturestart', handleGesture);
+      window.removeEventListener('gesturechange', handleGesture);
+      window.removeEventListener('gestureend', handleGesture);
+    };
+  }, []);
+
   const [flyToTarget, setFlyToTarget] = useState<{
     center: [number, number];
     zoom?: number;
@@ -598,7 +632,11 @@ export const App: React.FC = () => {
             setSelectedZone(null);
             setSelectedBuilding(null);
           }}
-          onViewportChange={setMapViewport}
+          onViewportChange={(vp) => {
+            if (godsEyeMode) {
+              setMapViewport(vp);
+            }
+          }}
           flyToLocation={flyToTarget}
           drawMode={drawMode}
           onCompleteDrawing={handleCompleteDrawing}

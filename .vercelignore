@@ -1,0 +1,7 @@
+android/
+release-builds/
+docs/
+.git
+node_modules
+dist
+.gradle

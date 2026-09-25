@@ -2,12 +2,16 @@
 
 > **"Simple para el usuario. Estructurado para el sistema. Geográfico en su representación. Histórico en sus datos. Offline por diseño."**
 
+[![Vercel Deployment](https://img.shields.io/badge/Vercel-Live%20Web%20App-black?logo=vercel)](https://miradadedios.vercel.app)
 [![Android Build](https://img.shields.io/badge/Android-APK%20Ready-brightgreen?logo=android)](https://github.com/WilkerDev1/mirada-de-dios/releases)
 [![MapLibre GL](https://img.shields.io/badge/Engine-MapLibre%20GL%20JS-blue?logo=webgl)](https://maplibre.org/)
 [![Capacitor](https://img.shields.io/badge/Mobile-Capacitor%208-1199EE?logo=capacitor)](https://capacitorjs.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Mirada de Dios** es una plataforma de gestión territorial y cartográfica offline-first diseñada para el mapeo estructurado de territorios residenciales, edificios, apartamentos, visitas e historial inmutable de predicación. 
+
+🌐 **Demo Web en Vivo:** [https://miradadedios.vercel.app](https://miradadedios.vercel.app)
+
 
 Inspirada tácticamente en la consola de inteligencia geoespacial [God's Eye View](https://github.com/bilawalsidhu/gods-eye-view) de Bilawal Sidhu y diseñada estrictamente bajo las especificaciones de arquitectura territorial v2.0 (`documentacion-de-aplicacion.md`).
 
@@ -103,15 +107,28 @@ npm run build
 # Sincronizar con el proyecto Android nativo
 npx cap sync android
 
-# Compilar APK Debug (Listo para instalar)
-cd android && ./gradlew assembleDebug
+# Compilar APK Debug con Gradle
+npm run android:build:debug
 
-# Compilar APK Release
-cd android && ./gradlew assembleRelease
+# O compilar todo el ciclo en un solo paso (Web + Sync + APK):
+npm run android:build
 ```
 
 El archivo APK resultante se genera en:
 `android/app/build/outputs/apk/debug/app-debug.apk`
+
+---
+
+## 📚 Documentación Técnica Detallada
+
+Para consultar la documentación modular completa por componentes y subsistemas, visita la carpeta [`docs/`](./docs/README.md):
+- [01. Arquitectura y Sistema](./docs/01-arquitectura-y-sistema.md)
+- [02. Modelo de Datos y Persistencia](./docs/02-modelo-de-datos-y-persistencia.md)
+- [03. Motor Cartográfico y HUD Táctico](./docs/03-motor-cartografico-y-hud.md)
+- [04. Componentes UI y Flujos](./docs/04-componentes-ui-y-flujos.md)
+- [05. Guía de Compilación y Configuración](./docs/05-guia-compilacion-y-entorno.md)
+- [06. Revisión de Organización y Recomendaciones](./docs/06-revision-organizacion-y-mejoras.md)
+
 
 ---
 

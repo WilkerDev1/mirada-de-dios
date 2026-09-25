@@ -330,16 +330,16 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   return (
     <aside 
       className={`fixed z-40 transition-all duration-200 ease-out select-none
-        /* Mobile: Bottom Sheet with compact max-height to keep map context visible */
+        /* Mobile (< 768px): Bottom Sheet with compact max-height to keep map context visible */
         bottom-0 left-0 right-0 max-h-[70vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.8)] rounded-t-3xl flex flex-col
-        /* Desktop: Floating Google Maps card */
-        sm:bottom-4 sm:right-4 sm:top-auto sm:left-auto sm:w-96 sm:rounded-2xl sm:border sm:max-h-[82vh]
+        /* Desktop (>= 768px): Floating Google Maps card with spacious desktop layout */
+        md:top-20 md:bottom-14 md:right-4 md:left-auto md:w-96 lg:w-[420px] md:rounded-2xl md:border md:max-h-[calc(100vh-140px)]
       `}
     >
       {/* Mobile Drag Handle */}
       <div 
         onClick={() => setIsExpandedMobile(!isExpandedMobile)}
-        className="sm:hidden w-full pt-2.5 pb-1 flex flex-col items-center justify-center cursor-pointer active:opacity-70"
+        className="md:hidden w-full pt-2.5 pb-1 flex flex-col items-center justify-center cursor-pointer active:opacity-70"
       >
         <div className="w-10 h-1 rounded-full bg-slate-600 hover:bg-slate-500 transition-colors" />
       </div>

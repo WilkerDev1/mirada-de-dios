@@ -417,7 +417,6 @@ export const MapView: React.FC<MapViewProps> = ({
       'bottom-right'
     );
 
-    let rafId: number | null = null;
     const updateViewport = () => {
       const c = map.getCenter();
       onViewportChange({
@@ -426,15 +425,9 @@ export const MapView: React.FC<MapViewProps> = ({
         pitch: map.getPitch(),
         bearing: map.getBearing()
       });
-
-      if (rafId === null) {
-        rafId = requestAnimationFrame(() => {
-          rafId = null;
-          setCurrentZoom(map.getZoom());
-          setCurrentPitch(map.getPitch());
-          setMapTransformSeq(s => (s + 1) % 1000000);
-        });
-      }
+      setCurrentZoom(map.getZoom());
+      setCurrentPitch(map.getPitch());
+      setMapTransformSeq(s => (s + 1) % 1000000);
     };
 
     map.on('move', updateViewport);
@@ -504,7 +497,6 @@ export const MapView: React.FC<MapViewProps> = ({
     });
 
     return () => {
-      if (rafId !== null) cancelAnimationFrame(rafId);
       map.remove();
       mapRef.current = null;
     };
@@ -709,6 +701,10 @@ export const MapView: React.FC<MapViewProps> = ({
   const projectedScreenPoints = (map && drawingPoints.length > 0)
     ? drawingPoints.map(p => map.project(p))
     : [];
+
+  const activePointerPx = (map && activePointer)
+    ? map.project([activePointer.lng, activePointer.lat])
+    : (activePointer ? { x: activePointer.x, y: activePointer.y } : null);
 
   const themeColor = drawMode.includes('TERRITORY') 
     ? '#0284c7' 
@@ -916,28 +912,43 @@ export const MapView: React.FC<MapViewProps> = ({
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onWheel={(e) => {
+            // Forward mouse wheel to MapLibre canvas so map zooms freely while drawing!
+            // Crucial: prevent browser DOM zoom!
+            e.preventDefault();
+            const canvas = mapRef.current?.getCanvas();
+            if (canvas) {
+              canvas.dispatchEvent(new WheelEvent('wheel', {
+                deltaX: e.deltaX,
+                deltaY: e.deltaY,
+                clientX: e.clientX,
+                clientY: e.clientY,
+                bubbles: true
+              }));
+            }
+          }}
           className="absolute inset-0 w-full h-full z-30 cursor-crosshair"
           style={{ touchAction: 'none' }}
         >
           <svg className="w-full h-full pointer-events-none overflow-visible">
             {/* 1. AutoCAD Hairline Crosshairs centered on current pointer */}
-            {activePointer && (
+            {activePointerPx && (
               <g opacity="0.45">
-                <line x1="0" y1={activePointer.y} x2="100%" y2={activePointer.y} stroke={themeColor} strokeWidth="1" strokeDasharray="5 5" />
-                <line x1={activePointer.x} y1="0" x2={activePointer.x} y2="100%" stroke={themeColor} strokeWidth="1" strokeDasharray="5 5" />
-                <rect x={activePointer.x - 7} y={activePointer.y - 7} width="14" height="14" fill="none" stroke={themeColor} strokeWidth="1.5" />
+                <line x1="0" y1={activePointerPx.y} x2="100%" y2={activePointerPx.y} stroke={themeColor} strokeWidth="1" strokeDasharray="5 5" />
+                <line x1={activePointerPx.x} y1="0" x2={activePointerPx.x} y2="100%" stroke={themeColor} strokeWidth="1" strokeDasharray="5 5" />
+                <rect x={activePointerPx.x - 7} y={activePointerPx.y - 7} width="14" height="14" fill="none" stroke={themeColor} strokeWidth="1.5" />
               </g>
             )}
 
             {/* 2. Box Mode (AutoCAD Rectangle Tool) */}
-            {(drawMode === 'DRAW_BUILDING_BOX' || drawMode === 'DRAW_ZONE_BOX') && projectedScreenPoints.length === 1 && activePointer && (
+            {(drawMode === 'DRAW_BUILDING_BOX' || drawMode === 'DRAW_ZONE_BOX') && projectedScreenPoints.length === 1 && activePointerPx && (
               <g>
                 {/* Real-time filled rectangle preview */}
                 <rect
-                  x={Math.min(projectedScreenPoints[0].x, activePointer.x)}
-                  y={Math.min(projectedScreenPoints[0].y, activePointer.y)}
-                  width={Math.abs(activePointer.x - projectedScreenPoints[0].x)}
-                  height={Math.abs(activePointer.y - projectedScreenPoints[0].y)}
+                  x={Math.min(projectedScreenPoints[0].x, activePointerPx.x)}
+                  y={Math.min(projectedScreenPoints[0].y, activePointerPx.y)}
+                  width={Math.abs(activePointerPx.x - projectedScreenPoints[0].x)}
+                  height={Math.abs(activePointerPx.y - projectedScreenPoints[0].y)}
                   fill={themeFill}
                   stroke={themeColor}
                   strokeWidth="3"
@@ -945,8 +956,8 @@ export const MapView: React.FC<MapViewProps> = ({
                 />
                 {/* Dimension label */}
                 <text
-                  x={(projectedScreenPoints[0].x + activePointer.x) / 2}
-                  y={Math.min(projectedScreenPoints[0].y, activePointer.y) - 10}
+                  x={(projectedScreenPoints[0].x + activePointerPx.x) / 2}
+                  y={Math.min(projectedScreenPoints[0].y, activePointerPx.y) - 10}
                   fill="#ffffff"
                   fontSize="12"
                   fontWeight="bold"
@@ -954,24 +965,24 @@ export const MapView: React.FC<MapViewProps> = ({
                   className="font-mono-tactical"
                   style={{ textShadow: '0 2px 4px rgba(0,0,0,0.9)' }}
                 >
-                  {getDistanceMeters(drawingPoints[0], [activePointer.lng, activePointer.lat])} m
+                  {activePointer && getDistanceMeters(drawingPoints[0], [activePointer.lng, activePointer.lat])} m
                 </text>
               </g>
             )}
 
             {/* 3. Freehand Polygon Mode (AutoCAD Polyline & Hatch Fill) */}
-            {projectedScreenPoints.length >= 2 && activePointer && (
+            {projectedScreenPoints.length >= 2 && activePointerPx && (
               <g>
                 {/* Real-time filled interior polygon preview */}
                 <polygon
-                  points={[...projectedScreenPoints, activePointer].map(p => `${p.x},${p.y}`).join(' ')}
+                  points={[...projectedScreenPoints, activePointerPx].map(p => `${p.x},${p.y}`).join(' ')}
                   fill={themeFill}
                   stroke="none"
                 />
                 {/* Closing guide line leading back to Point 1 */}
                 <line
-                  x1={activePointer.x}
-                  y1={activePointer.y}
+                  x1={activePointerPx.x}
+                  y1={activePointerPx.y}
                   x2={projectedScreenPoints[0].x}
                   y2={projectedScreenPoints[0].y}
                   stroke="#f59e0b"
@@ -995,18 +1006,18 @@ export const MapView: React.FC<MapViewProps> = ({
             )}
 
             {/* Dynamic Rubberband Line from last placed point to current pointer */}
-            {projectedScreenPoints.length >= 1 && activePointer && !drawMode.includes('BOX') && (
+            {projectedScreenPoints.length >= 1 && activePointerPx && !drawMode.includes('BOX') && (
               <g>
                 <line
                   x1={projectedScreenPoints[projectedScreenPoints.length - 1].x}
                   y1={projectedScreenPoints[projectedScreenPoints.length - 1].y}
-                  x2={activePointer.x}
-                  y2={activePointer.y}
+                  x2={activePointerPx.x}
+                  y2={activePointerPx.y}
                   stroke="#38bdf8"
                   strokeWidth="3"
                   strokeDasharray="5 3"
                 />
-                <circle cx={activePointer.x} cy={activePointer.y} r="5" fill="#38bdf8" stroke="#ffffff" strokeWidth="2" />
+                <circle cx={activePointerPx.x} cy={activePointerPx.y} r="5" fill="#38bdf8" stroke="#ffffff" strokeWidth="2" />
               </g>
             )}
 

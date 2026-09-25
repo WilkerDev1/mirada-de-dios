@@ -81,13 +81,13 @@ export const TerritorySheet: React.FC<TerritorySheetProps> = ({
         /* Mobile: Bottom Sheet docked at bottom */
         bottom-0 left-0 right-0 max-h-[75vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.7)] rounded-t-3xl flex flex-col
         /* Desktop: Floating Google Maps card */
-        sm:bottom-4 sm:right-4 sm:top-auto sm:left-auto sm:w-96 sm:rounded-2xl sm:border sm:max-h-[82vh]
+        md:top-20 md:bottom-14 md:right-4 md:left-auto md:w-96 lg:w-[420px] md:rounded-2xl md:border md:max-h-[calc(100vh-140px)]
       `}
     >
       {/* Mobile Handle */}
       <div 
         onClick={() => setIsExpandedMobile(!isExpandedMobile)}
-        className="sm:hidden w-full pt-3 pb-1 flex flex-col items-center justify-center cursor-pointer"
+        className="md:hidden w-full pt-3 pb-1 flex flex-col items-center justify-center cursor-pointer"
       >
         <div className="w-12 h-1.5 rounded-full bg-slate-600" />
       </div>

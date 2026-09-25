@@ -1,6 +1,6 @@
 {
   "appId": "com.miradadedios.app",
-  "appName": "Mirada de Dios",
+  "appName": "Territory Manager",
   "webDir": "dist",
   "server": {
     "androidScheme": "https"

@@ -9,8 +9,12 @@
     "preview": "vite preview",
     "cap:add:android": "cap add android",
     "cap:sync": "cap sync",
+    "cap:open": "cap open android",
+    "cap:run": "cap run android",
     "android:build:debug": "cd android && ./gradlew assembleDebug",
-    "android:build:release": "cd android && ./gradlew assembleRelease"
+    "android:build:release": "cd android && ./gradlew assembleRelease",
+    "android:build": "npm run build && npm run cap:sync && npm run android:build:debug",
+    "deploy": "vercel --prod"
   },
   "keywords": [],
   "type": "module",

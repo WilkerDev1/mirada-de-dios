@@ -150,13 +150,13 @@ export const TerritoryTree: React.FC<TerritoryTreeProps> = ({
 
   return (
     <>
-      {/* Mobile Backdrop Overlay */}
+      {/* Mobile Backdrop Overlay (only on mobile screens) */}
       <div 
         onClick={onClose} 
-        className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-40 transition-opacity" 
+        className="fixed inset-0 bg-slate-950/75 backdrop-blur-sm z-40 md:hidden transition-opacity" 
       />
 
-      <aside className="fixed top-0 bottom-0 left-0 w-84 sm:w-96 max-w-[88vw] z-50 flex flex-col bg-slate-950/98 backdrop-blur-2xl border-r border-slate-800 shadow-2xl text-slate-200 select-none animate-in slide-in-from-left duration-200">
+      <aside className="fixed top-0 bottom-0 left-0 w-84 sm:w-96 max-w-[88vw] z-50 md:z-30 md:top-20 md:bottom-14 md:left-4 md:w-96 md:rounded-2xl md:border md:border-slate-800 md:shadow-2xl flex flex-col bg-slate-950/98 backdrop-blur-2xl border-r border-slate-800 shadow-2xl text-slate-200 select-none animate-in slide-in-from-left duration-200">
         {/* Header */}
         <div className="p-4 pt-6 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -165,7 +165,7 @@ export const TerritoryTree: React.FC<TerritoryTreeProps> = ({
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-teal-400 font-mono-tactical font-semibold">
-                Dock Organizador
+                Territory Manager
               </div>
               <div className="font-bold text-sm text-slate-100 truncate mt-0.5">
                 Estructura por Carpetas
