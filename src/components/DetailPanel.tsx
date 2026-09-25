@@ -5,14 +5,17 @@ import {
   MapPin, 
   ShieldAlert, 
   History, 
-  FileText,
-  DoorOpen,
-  Send,
-  UserCheck,
-  ChevronDown,
-  ChevronUp
+  FileText, 
+  DoorOpen, 
+  Send, 
+  UserCheck, 
+  ChevronDown, 
+  ChevronUp,
+  Edit2,
+  Save,
+  Trash2
 } from 'lucide-react';
-import { Building, Apartment, Visit, Restriction, VisitResult, ApartmentStatus } from '../types';
+import { Building, Apartment, Visit, Restriction, VisitResult, ApartmentStatus, AccessType, BuildingType } from '../types';
 
 interface DetailPanelProps {
   building: Building | null;
@@ -26,6 +29,7 @@ interface DetailPanelProps {
     result: VisitResult;
     note?: string;
   }) => Promise<void>;
+  onUpdateBuilding?: (buildingId: string, updates: Partial<Building>) => Promise<void>;
 }
 
 export const DetailPanel: React.FC<DetailPanelProps> = ({
@@ -34,7 +38,8 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   visits,
   restrictions,
   onClose,
-  onRecordVisit
+  onRecordVisit,
+  onUpdateBuilding
 }) => {
   const [activeTab, setActiveTab] = useState<'UNITS' | 'HISTORY' | 'INFO'>('UNITS');
   const [selectedApartment, setSelectedApartment] = useState<Apartment | null>(null);
@@ -42,6 +47,24 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   const [visitNote, setVisitNote] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isExpandedMobile, setIsExpandedMobile] = useState(true);
+
+  // Edit Mode state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(building?.name || '');
+  const [editAddress, setEditAddress] = useState(building?.address || '');
+  const [editFloors, setEditFloors] = useState(building?.floors || 4);
+  const [editAccessType, setEditAccessType] = useState<AccessType>(building?.accessType || 'INTERCOM');
+
+  // Sync edit fields when building changes
+  React.useEffect(() => {
+    if (building) {
+      setEditName(building.name);
+      setEditAddress(building.address);
+      setEditFloors(building.floors);
+      setEditAccessType(building.accessType);
+      setIsEditing(false);
+    }
+  }, [building]);
 
   if (!building) return null;
 
@@ -62,6 +85,22 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
       console.error('Error saving visit:', e);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSaveBuildingEdits = async () => {
+    if (!onUpdateBuilding) return;
+    try {
+      await onUpdateBuilding(building.id, {
+        name: editName.trim() || building.name,
+        address: editAddress.trim() || building.address,
+        floors: Number(editFloors) || building.floors,
+        accessType: editAccessType
+      });
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Error updating building:', err);
+      alert('Error al guardar modificaciones del edificio');
     }
   };
 
@@ -92,8 +131,8 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
   const getAccessLabel = (type: Building['accessType']) => {
     switch (type) {
       case 'INTERCOM': return 'Intercomunicador';
-      case 'GUARD': return 'Vigilante / Recepción';
-      case 'GATE_SECURITY': return 'Portón Eléctrico / Garita';
+      case 'GUARD': return 'Vigilante / Garita';
+      case 'GATE_SECURITY': return 'Portón Eléctrico';
       case 'LOCKED': return 'Cerrado con llave';
       case 'FREE': return 'Acceso Libre';
       default: return 'Otro';
@@ -104,33 +143,68 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
     <aside 
       className={`fixed z-40 transition-all duration-300 select-none
         /* Mobile: Bottom Sheet */
-        bottom-0 left-0 right-0 max-h-[88vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-10px_40px_rgba(0,0,0,0.6)] rounded-t-3xl flex flex-col
+        bottom-0 left-0 right-0 max-h-[85vh] bg-slate-950/98 backdrop-blur-2xl border-t border-slate-700/80 shadow-[0_-12px_45px_rgba(0,0,0,0.7)] rounded-t-3xl flex flex-col
         /* Desktop: Right Slide-over */
         sm:top-14 sm:bottom-12 sm:right-0 sm:left-auto sm:w-96 sm:rounded-none sm:border-t-0 sm:border-l sm:max-h-none sm:shadow-2xl
       `}
     >
-      {/* Mobile Drag Handle Bar */}
+      {/* Mobile Drag Handle */}
       <div 
         onClick={() => setIsExpandedMobile(!isExpandedMobile)}
-        className="sm:hidden w-full pt-2.5 pb-1 flex flex-col items-center justify-center cursor-pointer"
+        className="sm:hidden w-full pt-3 pb-1 flex flex-col items-center justify-center cursor-pointer"
       >
         <div className="w-12 h-1.5 rounded-full bg-slate-600" />
       </div>
 
       {/* Header */}
-      <div className="px-4 py-2.5 border-b border-slate-800/80 flex items-start justify-between">
+      <div className="px-4 py-2 border-b border-slate-800/80 flex items-start justify-between">
         <div className="flex-1 pr-2 truncate">
-          <div className="flex items-center gap-1.5 text-xs text-teal-400 font-mono-tactical font-medium">
-            <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
-            <span className="truncate">{getAccessLabel(building.accessType)} · {building.floors} Pisos</span>
-          </div>
-          <h2 className="text-base font-bold text-slate-100 truncate mt-0.5">{building.name}</h2>
-          <div className="flex items-center gap-1 text-xs text-slate-400 mt-0.5 truncate">
-            <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" />
-            <span className="truncate">{building.address}</span>
-          </div>
+          {!isEditing ? (
+            <>
+              <div className="flex items-center gap-1.5 text-xs text-teal-400 font-mono-tactical font-medium">
+                <Building2 className="w-3.5 h-3.5 flex-shrink-0" />
+                <span className="truncate">{getAccessLabel(building.accessType)} · {building.floors} Pisos</span>
+              </div>
+              <h2 className="text-base font-bold text-slate-100 truncate mt-0.5">{building.name}</h2>
+              <div className="flex items-center gap-1 text-xs text-slate-400 mt-0.5 truncate">
+                <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-slate-500" />
+                <span className="truncate">{building.address}</span>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-1.5 py-1">
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="Nombre del edificio"
+                className="w-full p-1.5 rounded-lg bg-slate-900 border border-teal-500 text-xs text-white"
+              />
+              <input
+                type="text"
+                value={editAddress}
+                onChange={(e) => setEditAddress(e.target.value)}
+                placeholder="Dirección"
+                className="w-full p-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200"
+              />
+            </div>
+          )}
         </div>
+
         <div className="flex items-center gap-1">
+          {onUpdateBuilding && (
+            <button
+              onClick={() => {
+                if (isEditing) handleSaveBuildingEdits();
+                else setIsEditing(true);
+              }}
+              className={`p-1.5 rounded-lg transition-colors ${isEditing ? 'bg-teal-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}
+              title={isEditing ? 'Guardar cambios' : 'Editar datos'}
+            >
+              {isEditing ? <Save className="w-4 h-4" /> : <Edit2 className="w-4 h-4" />}
+            </button>
+          )}
+
           <button
             onClick={() => setIsExpandedMobile(!isExpandedMobile)}
             className="sm:hidden p-1.5 rounded-lg text-slate-400 hover:text-white"
@@ -151,7 +225,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
         <>
           {/* Restrictions / Alerts Banner */}
           {restrictions.length > 0 && (
-            <div className="mx-3 mt-2.5 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
+            <div className="mx-3 mt-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2">
               <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
               <div>
                 <div className="font-semibold text-amber-300">Restricción activa:</div>
@@ -216,7 +290,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                 </div>
 
                 {/* Units Grid */}
-                <div className="grid grid-cols-3 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {apartments.map(apt => (
                     <button
                       key={apt.id}
@@ -254,7 +328,6 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({
                       </button>
                     </div>
 
-                    {/* Result buttons */}
                     <div className="grid grid-cols-2 gap-1.5 text-xs">
                       <button
                         type="button"

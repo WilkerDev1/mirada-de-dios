@@ -376,3 +376,44 @@ function getDeviceId(): string {
   }
   return devId;
 }
+
+export async function updateBuilding(buildingId: string, updates: Partial<Building>): Promise<Building | undefined> {
+  const existing = await db.buildings.get(buildingId);
+  if (!existing) return undefined;
+  const updated: Building = {
+    ...existing,
+    ...updates,
+    updatedAt: new Date().toISOString()
+  };
+  await db.buildings.put(updated);
+  return updated;
+}
+
+export async function createTerritory(data: {
+  congregationId: string;
+  name: string;
+  code: string;
+  color?: string;
+  center: [number, number];
+  polygonCoordinates: number[][][];
+}): Promise<Territory> {
+  const terrId = 'terr-custom-' + Math.random().toString(36).substring(2, 9);
+  const now = new Date().toISOString();
+  const newTerr: Territory = {
+    id: terrId,
+    congregationId: data.congregationId,
+    name: data.name,
+    code: data.code,
+    center: data.center,
+    color: data.color || '#0d9488',
+    geometry: {
+      type: 'Polygon',
+      coordinates: data.polygonCoordinates
+    },
+    status: 'ACTIVE',
+    createdAt: now,
+    updatedAt: now
+  };
+  await db.territories.add(newTerr);
+  return newTerr;
+}

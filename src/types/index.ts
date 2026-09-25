@@ -56,6 +56,7 @@ export interface Territory {
   code: string;
   geometry: GeoPolygon;
   center: [number, number]; // [lon, lat]
+  color?: string;
   status: 'ACTIVE' | 'ARCHIVED' | 'IN_TRANSFER';
   createdAt: string;
   updatedAt: string;
@@ -128,7 +129,7 @@ export interface Restriction {
 export interface SyncOperation {
   id: string;
   deviceId: string;
-  operationType: 'CREATE_VISIT' | 'UPDATE_BUILDING' | 'CREATE_BUILDING' | 'CREATE_ZONE' | 'ADD_RESTRICTION';
+  operationType: 'CREATE_VISIT' | 'UPDATE_BUILDING' | 'CREATE_BUILDING' | 'CREATE_ZONE' | 'CREATE_TERRITORY' | 'ADD_RESTRICTION';
   entityType: string;
   entityId: string;
   payload: any;
@@ -152,18 +153,22 @@ export interface CoverageMetrics {
 }
 
 export type BaseMapStyle = 
-  | 'GOOGLE_STREETS' 
   | 'GOOGLE_HYBRID' 
+  | 'GOOGLE_STREETS' 
   | 'GOOGLE_SATELLITE' 
   | 'GOOGLE_TERRAIN'
   | 'OSM_STREETS' 
   | 'GODS_EYE_DARK';
 
+export type AppMode = 'BUILDINGS' | 'ZONES' | 'TERRITORIES';
+
 export type DrawMode = 
   | 'NONE' 
-  | 'DRAW_BUILDING_POLYGON' 
   | 'DRAW_BUILDING_BOX' 
-  | 'DRAW_ZONE';
+  | 'DRAW_BUILDING_POLYGON' 
+  | 'DRAW_ZONE_BOX'
+  | 'DRAW_ZONE_POLYGON'
+  | 'DRAW_TERRITORY_POLYGON';
 
 export interface LayerToggles {
   territorial: boolean;

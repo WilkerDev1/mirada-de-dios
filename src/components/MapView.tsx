@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Map, NavigationControl, GeolocateControl, StyleSpecification } from 'maplibre-gl';
 import type { FeatureCollection } from 'geojson';
 import { 
@@ -8,20 +8,24 @@ import {
   Apartment, 
   BaseMapStyle, 
   LayerToggles, 
-  DrawMode 
+  DrawMode,
+  AppMode
 } from '../types';
 import { Check, X, Undo, Box, Edit3 } from 'lucide-react';
 
 interface MapViewProps {
   baseMap: BaseMapStyle;
   layers: LayerToggles;
+  appMode: AppMode;
   territories: Territory[];
   activeTerritory: Territory | null;
   zones: Zone[];
   buildings: Building[];
   apartments: Apartment[];
   selectedBuilding: Building | null;
+  selectedZone: Zone | null;
   onSelectBuilding: (building: Building) => void;
+  onSelectZone: (zone: Zone) => void;
   onViewportChange: (viewport: {
     center: [number, number];
     zoom: number;
@@ -37,13 +41,16 @@ interface MapViewProps {
 export const MapView: React.FC<MapViewProps> = ({
   baseMap,
   layers,
+  appMode,
   territories,
   activeTerritory,
   zones,
   buildings,
   apartments,
   selectedBuilding,
+  selectedZone,
   onSelectBuilding,
+  onSelectZone,
   onViewportChange,
   flyToLocation,
   drawMode,
@@ -55,187 +62,368 @@ export const MapView: React.FC<MapViewProps> = ({
 
   // Drawing state
   const [drawingPoints, setDrawingPoints] = useState<[number, number][]>([]);
+  const [cursorCoord, setCursorCoord] = useState<[number, number] | null>(null);
 
-  // Determine map style spec (Now including Google Maps fresh raster tiles!)
+  // Helper to ensure linear rings are closed for GeoJSON Polygons
+  const ensureClosedRing = (coords: number[][]): number[][] => {
+    if (!coords || coords.length === 0) return [];
+    const first = coords[0];
+    const last = coords[coords.length - 1];
+    if (first[0] !== last[0] || first[1] !== last[1]) {
+      return [...coords, [first[0], first[1]]];
+    }
+    return coords;
+  };
+
   const getStyleForBaseMap = (style: BaseMapStyle): StyleSpecification => {
     switch (style) {
       case 'GOOGLE_STREETS':
         return {
           version: 8,
           sources: {
-            'google-streets-tiles': {
+            'base-tiles': {
               type: 'raster',
-              tiles: [
-                'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'
-              ],
+              tiles: ['https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}'],
               tileSize: 256,
               attribution: '© Google Maps'
             }
           },
-          layers: [
-            {
-              id: 'google-streets-layer',
-              type: 'raster',
-              source: 'google-streets-tiles',
-              minzoom: 0,
-              maxzoom: 22
-            }
-          ]
-        };
-
-      case 'GOOGLE_HYBRID':
-        return {
-          version: 8,
-          sources: {
-            'google-hybrid-tiles': {
-              type: 'raster',
-              tiles: [
-                'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'
-              ],
-              tileSize: 256,
-              attribution: '© Google Maps'
-            }
-          },
-          layers: [
-            {
-              id: 'google-hybrid-layer',
-              type: 'raster',
-              source: 'google-hybrid-tiles',
-              minzoom: 0,
-              maxzoom: 22
-            }
-          ]
+          layers: [{ id: 'base-tiles-layer', type: 'raster', source: 'base-tiles', minzoom: 0, maxzoom: 22 }]
         };
 
       case 'GOOGLE_SATELLITE':
         return {
           version: 8,
           sources: {
-            'google-satellite-tiles': {
+            'base-tiles': {
               type: 'raster',
-              tiles: [
-                'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'
-              ],
+              tiles: ['https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}'],
               tileSize: 256,
               attribution: '© Google Maps'
             }
           },
-          layers: [
-            {
-              id: 'google-satellite-layer',
-              type: 'raster',
-              source: 'google-satellite-tiles',
-              minzoom: 0,
-              maxzoom: 22
-            }
-          ]
+          layers: [{ id: 'base-tiles-layer', type: 'raster', source: 'base-tiles', minzoom: 0, maxzoom: 22 }]
         };
 
       case 'GOOGLE_TERRAIN':
         return {
           version: 8,
           sources: {
-            'google-terrain-tiles': {
+            'base-tiles': {
               type: 'raster',
-              tiles: [
-                'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'
-              ],
+              tiles: ['https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}'],
               tileSize: 256,
               attribution: '© Google Maps'
             }
           },
-          layers: [
-            {
-              id: 'google-terrain-layer',
-              type: 'raster',
-              source: 'google-terrain-tiles',
-              minzoom: 0,
-              maxzoom: 22
-            }
-          ]
+          layers: [{ id: 'base-tiles-layer', type: 'raster', source: 'base-tiles', minzoom: 0, maxzoom: 22 }]
         };
 
       case 'GODS_EYE_DARK':
         return {
           version: 8,
           sources: {
-            'dark-tiles': {
+            'base-tiles': {
               type: 'raster',
-              tiles: [
-                'https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png'
-              ],
+              tiles: ['https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png'],
               tileSize: 256,
               attribution: '© CARTO, © OpenStreetMap'
             }
           },
-          layers: [
-            {
-              id: 'dark-layer',
-              type: 'raster',
-              source: 'dark-tiles'
-            }
-          ]
+          layers: [{ id: 'base-tiles-layer', type: 'raster', source: 'base-tiles' }]
         };
 
       case 'OSM_STREETS':
-      default:
         return {
           version: 8,
           sources: {
-            'osm-tiles': {
+            'base-tiles': {
               type: 'raster',
-              tiles: [
-                'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-              ],
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
               tileSize: 256,
               attribution: '© OpenStreetMap contributors'
             }
           },
-          layers: [
-            {
-              id: 'osm-layer',
+          layers: [{ id: 'base-tiles-layer', type: 'raster', source: 'base-tiles' }]
+        };
+
+      case 'GOOGLE_HYBRID':
+      default:
+        return {
+          version: 8,
+          sources: {
+            'base-tiles': {
               type: 'raster',
-              source: 'osm-tiles'
+              tiles: ['https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}'],
+              tileSize: 256,
+              attribution: '© Google Maps'
             }
-          ]
+          },
+          layers: [{ id: 'base-tiles-layer', type: 'raster', source: 'base-tiles', minzoom: 0, maxzoom: 22 }]
         };
     }
   };
 
-  // Initialize map
+  // Re-render and attach all GeoJSON layers safely
+  const refreshGeoJsonLayers = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!map.isStyleLoaded()) {
+      map.once('style.load', () => refreshGeoJsonLayers());
+      return;
+    }
+
+    // 1. Territories Layer
+    if (layers.territorial) {
+      const territoriesGeoJson: FeatureCollection = {
+        type: 'FeatureCollection',
+        features: territories.map(t => ({
+          type: 'Feature',
+          id: t.id,
+          properties: {
+            id: t.id,
+            name: t.name,
+            code: t.code,
+            isActive: t.id === activeTerritory?.id
+          },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [ensureClosedRing(t.geometry.coordinates[0])]
+          }
+        }))
+      };
+
+      if (!map.getSource('territories-src')) {
+        map.addSource('territories-src', { type: 'geojson', data: territoriesGeoJson });
+        map.addLayer({
+          id: 'territories-fill-layer',
+          type: 'fill',
+          source: 'territories-src',
+          paint: {
+            'fill-color': '#0284c7',
+            'fill-opacity': appMode === 'TERRITORIES' ? 0.18 : 0.06
+          }
+        });
+        map.addLayer({
+          id: 'territories-line-layer',
+          type: 'line',
+          source: 'territories-src',
+          paint: {
+            'line-color': '#38bdf8',
+            'line-width': appMode === 'TERRITORIES' ? 4 : 2,
+            'line-dasharray': [3, 2]
+          }
+        });
+      } else {
+        (map.getSource('territories-src') as any).setData(territoriesGeoJson);
+        map.setPaintProperty('territories-fill-layer', 'fill-opacity', appMode === 'TERRITORIES' ? 0.18 : 0.06);
+        map.setPaintProperty('territories-line-layer', 'line-width', appMode === 'TERRITORIES' ? 4 : 2);
+      }
+    }
+
+    // 2. Zones / Residenciales Layer
+    if (layers.territorial) {
+      const zonesGeoJson: FeatureCollection = {
+        type: 'FeatureCollection',
+        features: zones.map(z => ({
+          type: 'Feature',
+          id: z.id,
+          properties: {
+            id: z.id,
+            name: z.name,
+            code: z.code,
+            color: z.color || '#0d9488',
+            isSelected: z.id === selectedZone?.id
+          },
+          geometry: {
+            type: 'Polygon',
+            coordinates: [ensureClosedRing(z.geometry.coordinates[0])]
+          }
+        }))
+      };
+
+      if (!map.getSource('zones-src')) {
+        map.addSource('zones-src', { type: 'geojson', data: zonesGeoJson });
+        map.addLayer({
+          id: 'zones-fill-layer',
+          type: 'fill',
+          source: 'zones-src',
+          paint: {
+            'fill-color': ['get', 'color'],
+            'fill-opacity': appMode === 'ZONES' ? 0.35 : 0.18
+          }
+        });
+        map.addLayer({
+          id: 'zones-line-layer',
+          type: 'line',
+          source: 'zones-src',
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': appMode === 'ZONES' ? 3.5 : 2
+          }
+        });
+
+        // Click zone handler in ZONES mode
+        map.on('click', 'zones-fill-layer', (e) => {
+          if (drawMode !== 'NONE') return;
+          if (appMode === 'ZONES') {
+            const zId = e.features?.[0]?.properties?.id;
+            const targetZone = zones.find(z => z.id === zId);
+            if (targetZone) onSelectZone(targetZone);
+          }
+        });
+      } else {
+        (map.getSource('zones-src') as any).setData(zonesGeoJson);
+        map.setPaintProperty('zones-fill-layer', 'fill-opacity', appMode === 'ZONES' ? 0.35 : 0.18);
+        map.setPaintProperty('zones-line-layer', 'line-width', appMode === 'ZONES' ? 3.5 : 2);
+      }
+    }
+
+    // 3. Buildings Layer (High Visibility Semi-transparent & 3D Extrusion)
+    if (layers.buildings) {
+      const buildingsGeoJson: FeatureCollection = {
+        type: 'FeatureCollection',
+        features: buildings.map(b => {
+          const bApartments = apartments.filter(a => a.buildingId === b.id && !a.archivedAt);
+          let statusColor = '#3b82f6'; // default vibrant blue
+
+          if (layers.preachingStatus && bApartments.length > 0) {
+            const hasAccessProblem = bApartments.some(a => a.calculatedStatus === 'ACCESS_PROBLEM');
+            const allContacted = bApartments.every(a => a.calculatedStatus === 'CONTACTED');
+            const someContacted = bApartments.some(a => a.calculatedStatus === 'CONTACTED');
+            const someNoAnswer = bApartments.some(a => a.calculatedStatus === 'NO_ANSWER');
+
+            if (hasAccessProblem) statusColor = '#ef4444'; // Red
+            else if (allContacted) statusColor = '#10b981'; // Emerald
+            else if (someContacted) statusColor = '#22c55e'; // Green
+            else if (someNoAnswer) statusColor = '#f59e0b'; // Amber
+          }
+
+          const height = Math.max(8, b.floors * 4.2);
+          const closedRing = ensureClosedRing(b.geometry.coordinates[0]);
+
+          return {
+            type: 'Feature',
+            id: b.id,
+            properties: {
+              id: b.id,
+              name: b.name,
+              address: b.address,
+              floors: b.floors,
+              height: height,
+              statusColor: statusColor,
+              isSelected: b.id === selectedBuilding?.id
+            },
+            geometry: {
+              type: 'Polygon',
+              coordinates: [closedRing]
+            }
+          };
+        })
+      };
+
+      if (!map.getSource('buildings-src')) {
+        map.addSource('buildings-src', { type: 'geojson', data: buildingsGeoJson });
+
+        // 2D Fill with vivid semi-transparency
+        map.addLayer({
+          id: 'buildings-fill-layer',
+          type: 'fill',
+          source: 'buildings-src',
+          paint: {
+            'fill-color': ['get', 'statusColor'],
+            'fill-opacity': 0.75
+          }
+        });
+
+        // 3D Extrusion
+        if (layers.threeDBuildings) {
+          map.addLayer({
+            id: 'buildings-extrusion-layer',
+            type: 'fill-extrusion',
+            source: 'buildings-src',
+            paint: {
+              'fill-extrusion-color': ['get', 'statusColor'],
+              'fill-extrusion-height': ['get', 'height'],
+              'fill-extrusion-base': 0,
+              'fill-extrusion-opacity': 0.88
+            }
+          });
+        }
+
+        // White crisp building outline
+        map.addLayer({
+          id: 'buildings-line-layer',
+          type: 'line',
+          source: 'buildings-src',
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': [
+              'case',
+              ['boolean', ['get', 'isSelected'], false],
+              4.5,
+              2.0
+            ]
+          }
+        });
+
+        // Click handler
+        const onBuildingClick = (e: any) => {
+          if (drawMode !== 'NONE') return;
+          const bId = e.features?.[0]?.properties?.id;
+          const target = buildings.find(b => b.id === bId);
+          if (target) onSelectBuilding(target);
+        };
+
+        map.on('click', 'buildings-fill-layer', onBuildingClick);
+        if (layers.threeDBuildings) {
+          map.on('click', 'buildings-extrusion-layer', onBuildingClick);
+        }
+
+        const setPtr = () => { if (drawMode === 'NONE') map.getCanvas().style.cursor = 'pointer'; };
+        const resetPtr = () => { if (drawMode === 'NONE') map.getCanvas().style.cursor = ''; };
+
+        map.on('mouseenter', 'buildings-fill-layer', setPtr);
+        map.on('mouseleave', 'buildings-fill-layer', resetPtr);
+      } else {
+        (map.getSource('buildings-src') as any).setData(buildingsGeoJson);
+      }
+    }
+  }, [layers, appMode, territories, activeTerritory, zones, buildings, apartments, selectedBuilding, selectedZone, drawMode, onSelectBuilding, onSelectZone]);
+
+  // Initialize MapLibre
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
     const initialCenter: [number, number] = activeTerritory 
       ? activeTerritory.center 
-      : [-69.8860, 18.4740]; // Santo Domingo Zona Colonial
+      : [-69.8860, 18.4740];
 
     const map = new Map({
       container: mapContainer.current,
       style: getStyleForBaseMap(baseMap),
       center: initialCenter,
-      zoom: 16.2,
-      pitch: 40,
-      bearing: -10
+      zoom: 16.5,
+      pitch: 35,
+      bearing: 0
     });
 
     mapRef.current = map;
 
-    // Controls on desktop / top-right
-    map.addControl(new NavigationControl({ visualizePitch: true }), 'top-right');
+    map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-right');
     map.addControl(
       new GeolocateControl({
         positionOptions: { enableHighAccuracy: true },
         trackUserLocation: true
       }),
-      'top-right'
+      'bottom-right'
     );
 
-    // Viewport tracker
     const updateViewport = () => {
-      const center = map.getCenter();
+      const c = map.getCenter();
       onViewportChange({
-        center: [center.lng, center.lat],
+        center: [c.lng, c.lat],
         zoom: map.getZoom(),
         pitch: map.getPitch(),
         bearing: map.getBearing()
@@ -261,46 +449,50 @@ export const MapView: React.FC<MapViewProps> = ({
     mapRef.current.once('style.load', () => {
       refreshGeoJsonLayers();
     });
-  }, [baseMap]);
+  }, [baseMap, refreshGeoJsonLayers]);
 
   // Handle flyTo requests
   useEffect(() => {
     if (!mapRef.current || !flyToLocation) return;
     mapRef.current.flyTo({
       center: flyToLocation.center,
-      zoom: flyToLocation.zoom || 16.5,
-      pitch: 40,
+      zoom: flyToLocation.zoom || 17,
+      pitch: 35,
       speed: 1.4,
       curve: 1.2,
       essential: true
     });
   }, [flyToLocation]);
 
-  // Clear drawing points when draw mode changes to NONE
+  // Re-trigger layers when data or layers toggle changes
   useEffect(() => {
-    if (drawMode === 'NONE') {
-      setDrawingPoints([]);
-      removeDrawingLayers();
-    }
-  }, [drawMode]);
+    refreshGeoJsonLayers();
+  }, [refreshGeoJsonLayers]);
 
-  // Map Click Handler for Drawing Mode
+  // Interactive Live Drawing Engine (Mouse & Touch with Rubberband Feedback)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
 
-    const handleMapClick = (e: any) => {
+    // Track cursor/pointer coordinate in real time
+    const handleMouseMove = (e: any) => {
+      if (drawMode === 'NONE') return;
+      setCursorCoord([e.lngLat.lng, e.lngLat.lat]);
+    };
+
+    const handleClick = (e: any) => {
       if (drawMode === 'NONE') return;
 
-      const newPoint: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+      const clickPt: [number, number] = [e.lngLat.lng, e.lngLat.lat];
 
-      if (drawMode === 'DRAW_BUILDING_BOX') {
-        // Quick box mode: 2 points define a rectangle
+      if (drawMode === 'DRAW_BUILDING_BOX' || drawMode === 'DRAW_ZONE_BOX') {
         if (drawingPoints.length === 0) {
-          setDrawingPoints([newPoint]);
+          // First corner
+          setDrawingPoints([clickPt]);
         } else if (drawingPoints.length === 1) {
+          // Second corner - completes box immediately
           const p1 = drawingPoints[0];
-          const p2 = newPoint;
+          const p2 = clickPt;
           const minLon = Math.min(p1[0], p2[0]);
           const maxLon = Math.max(p1[0], p2[0]);
           const minLat = Math.min(p1[1], p2[1]);
@@ -315,402 +507,207 @@ export const MapView: React.FC<MapViewProps> = ({
           ]];
 
           setDrawingPoints([]);
-          onCompleteDrawing(boxPolygon, 'DRAW_BUILDING_BOX');
+          setCursorCoord(null);
+          onCompleteDrawing(boxPolygon, drawMode);
         }
       } else {
-        // Multi-point polygon mode (DRAW_BUILDING_POLYGON or DRAW_ZONE)
-        setDrawingPoints(prev => [...prev, newPoint]);
+        // Multi-point polygon
+        setDrawingPoints(prev => [...prev, clickPt]);
       }
     };
 
-    map.on('click', handleMapClick);
+    map.on('mousemove', handleMouseMove);
+    map.on('click', handleClick);
+
     return () => {
-      map.off('click', handleMapClick);
+      map.off('mousemove', handleMouseMove);
+      map.off('click', handleClick);
     };
   }, [drawMode, drawingPoints, onCompleteDrawing]);
 
-  // Update drawing layers on map
+  // Live Drawing Feedback Preview Layer on the Map
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
-    if (drawingPoints.length === 0) {
-      removeDrawingLayers();
+    if (drawingPoints.length === 0 && !cursorCoord) {
+      removeDrawPreview();
       return;
     }
 
-    const pointsGeoJson: FeatureCollection = {
+    let previewCoords: number[][] = [];
+
+    if ((drawMode === 'DRAW_BUILDING_BOX' || drawMode === 'DRAW_ZONE_BOX') && drawingPoints.length === 1 && cursorCoord) {
+      // Live rubberband box
+      const p1 = drawingPoints[0];
+      const p2 = cursorCoord;
+      const minLon = Math.min(p1[0], p2[0]);
+      const maxLon = Math.max(p1[0], p2[0]);
+      const minLat = Math.min(p1[1], p2[1]);
+      const maxLat = Math.max(p1[1], p2[1]);
+
+      previewCoords = [
+        [minLon, minLat],
+        [maxLon, minLat],
+        [maxLon, maxLat],
+        [minLon, maxLat],
+        [minLon, minLat]
+      ];
+    } else if (drawingPoints.length > 0) {
+      previewCoords = [...drawingPoints];
+      if (cursorCoord) previewCoords.push(cursorCoord);
+      if (previewCoords.length > 2) {
+        previewCoords = ensureClosedRing(previewCoords);
+      }
+    }
+
+    const drawGeoJson: FeatureCollection = {
+      type: 'FeatureCollection',
+      features: previewCoords.length >= 3 ? [
+        {
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'Polygon', coordinates: [previewCoords] }
+        }
+      ] : (previewCoords.length >= 2 ? [
+        {
+          type: 'Feature',
+          properties: {},
+          geometry: { type: 'LineString', coordinates: previewCoords }
+        }
+      ] : [])
+    };
+
+    const markersGeoJson: FeatureCollection = {
       type: 'FeatureCollection',
       features: drawingPoints.map((pt, i) => ({
         type: 'Feature',
         id: i,
-        properties: { index: i },
+        properties: { label: `${i + 1}` },
         geometry: { type: 'Point', coordinates: pt }
       }))
     };
 
-    // Construct lines or polygon preview
-    const lineCoords = [...drawingPoints];
-    if (drawingPoints.length > 2) {
-      lineCoords.push(drawingPoints[0]); // close loop for preview
-    }
-
-    const linesGeoJson: FeatureCollection = {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          properties: {},
-          geometry: {
-            type: drawingPoints.length > 2 ? 'Polygon' : 'LineString',
-            coordinates: drawingPoints.length > 2 ? [lineCoords] : lineCoords
-          } as any
-        }
-      ]
-    };
-
-    // Draw Source
-    if (!map.getSource('draw-lines-src')) {
-      map.addSource('draw-lines-src', { type: 'geojson', data: linesGeoJson });
-      map.addSource('draw-points-src', { type: 'geojson', data: pointsGeoJson });
+    if (!map.getSource('draw-preview-src')) {
+      map.addSource('draw-preview-src', { type: 'geojson', data: drawGeoJson });
+      map.addSource('draw-markers-src', { type: 'geojson', data: markersGeoJson });
 
       map.addLayer({
-        id: 'draw-polygon-fill',
+        id: 'draw-preview-fill',
         type: 'fill',
-        source: 'draw-lines-src',
+        source: 'draw-preview-src',
         paint: {
-          'fill-color': drawMode === 'DRAW_ZONE' ? '#6366f1' : '#14b8a6',
-          'fill-opacity': 0.3
+          'fill-color': drawMode.includes('ZONE') ? '#818cf8' : '#2dd4bf',
+          'fill-opacity': 0.5
         }
       });
 
       map.addLayer({
-        id: 'draw-polygon-line',
+        id: 'draw-preview-line',
         type: 'line',
-        source: 'draw-lines-src',
+        source: 'draw-preview-src',
         paint: {
           'line-color': '#ffffff',
-          'line-width': 2.5,
+          'line-width': 3,
           'line-dasharray': [2, 1]
         }
       });
 
       map.addLayer({
-        id: 'draw-points-layer',
+        id: 'draw-markers-circle',
         type: 'circle',
-        source: 'draw-points-src',
+        source: 'draw-markers-src',
         paint: {
-          'circle-radius': 6,
+          'circle-radius': 7,
           'circle-color': '#f59e0b',
-          'circle-stroke-width': 2,
+          'circle-stroke-width': 2.5,
           'circle-stroke-color': '#ffffff'
         }
       });
     } else {
-      (map.getSource('draw-lines-src') as any).setData(linesGeoJson);
-      (map.getSource('draw-points-src') as any).setData(pointsGeoJson);
+      (map.getSource('draw-preview-src') as any).setData(drawGeoJson);
+      (map.getSource('draw-markers-src') as any).setData(markersGeoJson);
     }
-  }, [drawingPoints, drawMode]);
+  }, [drawingPoints, cursorCoord, drawMode]);
 
-  const removeDrawingLayers = () => {
+  const removeDrawPreview = () => {
     const map = mapRef.current;
     if (!map) return;
-    ['draw-points-layer', 'draw-polygon-line', 'draw-polygon-fill'].forEach(id => {
+    ['draw-markers-circle', 'draw-preview-line', 'draw-preview-fill'].forEach(id => {
       if (map.getLayer(id)) map.removeLayer(id);
     });
-    if (map.getSource('draw-lines-src')) map.removeSource('draw-lines-src');
-    if (map.getSource('draw-points-src')) map.removeSource('draw-points-src');
+    if (map.getSource('draw-preview-src')) map.removeSource('draw-preview-src');
+    if (map.getSource('draw-markers-src')) map.removeSource('draw-markers-src');
   };
 
   const handleFinishPolygon = () => {
     if (drawingPoints.length < 3) {
-      alert('Se necesitan al menos 3 puntos para cerrar el polígono');
+      alert('Se requieren al menos 3 esquinas para cerrar la forma.');
       return;
     }
-    const closedCoords = [...drawingPoints, drawingPoints[0]];
-    const polygon: number[][][] = [closedCoords];
-    const currentMode = drawMode;
+    const closed = ensureClosedRing(drawingPoints);
+    const polygon: number[][][] = [closed];
+    const mode = drawMode;
     setDrawingPoints([]);
-    onCompleteDrawing(polygon, currentMode);
+    setCursorCoord(null);
+    onCompleteDrawing(polygon, mode);
   };
-
-  const handleUndoPoint = () => {
-    setDrawingPoints(prev => prev.slice(0, -1));
-  };
-
-  // Helper to determine dominant status for building
-  const getBuildingStatusColor = (bldId: string) => {
-    const bApartments = apartments.filter(a => a.buildingId === bldId && !a.archivedAt);
-    if (bApartments.length === 0) return '#3b82f6';
-
-    const hasAccessProblem = bApartments.some(a => a.calculatedStatus === 'ACCESS_PROBLEM');
-    if (hasAccessProblem) return '#ef4444';
-
-    const allContacted = bApartments.every(a => a.calculatedStatus === 'CONTACTED');
-    if (allContacted) return '#10b981';
-
-    const someContacted = bApartments.some(a => a.calculatedStatus === 'CONTACTED');
-    if (someContacted) return '#22c55e';
-
-    const someNoAnswer = bApartments.some(a => a.calculatedStatus === 'NO_ANSWER');
-    if (someNoAnswer) return '#f59e0b';
-
-    return '#3b82f6';
-  };
-
-  // Re-render GeoJSON layers on the map
-  const refreshGeoJsonLayers = () => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-
-    const customLayers = [
-      'buildings-extrusion-layer',
-      'buildings-fill-layer',
-      'buildings-line-layer',
-      'buildings-highlight-layer',
-      'zones-fill-layer',
-      'zones-line-layer',
-      'territories-line-layer'
-    ];
-
-    customLayers.forEach(layerId => {
-      if (map.getLayer(layerId)) map.removeLayer(layerId);
-    });
-
-    if (map.getSource('buildings-src')) map.removeSource('buildings-src');
-    if (map.getSource('zones-src')) map.removeSource('zones-src');
-    if (map.getSource('territories-src')) map.removeSource('territories-src');
-
-    // 1. Territories Source & Layer
-    if (layers.territorial) {
-      const territoriesGeoJson: FeatureCollection = {
-        type: 'FeatureCollection',
-        features: territories.map(t => ({
-          type: 'Feature',
-          id: t.id,
-          properties: {
-            id: t.id,
-            name: t.name,
-            code: t.code,
-            isActive: t.id === activeTerritory?.id
-          },
-          geometry: t.geometry
-        }))
-      };
-
-      map.addSource('territories-src', {
-        type: 'geojson',
-        data: territoriesGeoJson
-      });
-
-      map.addLayer({
-        id: 'territories-line-layer',
-        type: 'line',
-        source: 'territories-src',
-        paint: {
-          'line-color': '#0d9488',
-          'line-width': 3,
-          'line-dasharray': [2, 2]
-        }
-      });
-
-      // 2. Zones Source & Layer with custom residential colors
-      const zonesGeoJson: FeatureCollection = {
-        type: 'FeatureCollection',
-        features: zones.map(z => ({
-          type: 'Feature',
-          id: z.id,
-          properties: {
-            id: z.id,
-            name: z.name,
-            code: z.code,
-            color: z.color || '#0d9488'
-          },
-          geometry: z.geometry
-        }))
-      };
-
-      map.addSource('zones-src', {
-        type: 'geojson',
-        data: zonesGeoJson
-      });
-
-      map.addLayer({
-        id: 'zones-fill-layer',
-        type: 'fill',
-        source: 'zones-src',
-        paint: {
-          'fill-color': ['get', 'color'],
-          'fill-opacity': 0.16
-        }
-      });
-
-      map.addLayer({
-        id: 'zones-line-layer',
-        type: 'line',
-        source: 'zones-src',
-        paint: {
-          'line-color': ['get', 'color'],
-          'line-width': 2.5
-        }
-      });
-    }
-
-    // 3. Buildings Source & Layer
-    if (layers.buildings) {
-      const buildingsGeoJson: FeatureCollection = {
-        type: 'FeatureCollection',
-        features: buildings.map(b => {
-          const statusColor = layers.preachingStatus ? getBuildingStatusColor(b.id) : '#0284c7';
-          const height = b.floors * 4.2;
-
-          return {
-            type: 'Feature',
-            id: b.id,
-            properties: {
-              id: b.id,
-              name: b.name,
-              address: b.address,
-              floors: b.floors,
-              height: height,
-              statusColor: statusColor,
-              isSelected: b.id === selectedBuilding?.id
-            },
-            geometry: b.geometry
-          };
-        })
-      };
-
-      map.addSource('buildings-src', {
-        type: 'geojson',
-        data: buildingsGeoJson
-      });
-
-      if (layers.threeDBuildings) {
-        map.addLayer({
-          id: 'buildings-extrusion-layer',
-          type: 'fill-extrusion',
-          source: 'buildings-src',
-          paint: {
-            'fill-extrusion-color': ['get', 'statusColor'],
-            'fill-extrusion-height': ['get', 'height'],
-            'fill-extrusion-base': 0,
-            'fill-extrusion-opacity': 0.88
-          }
-        });
-      } else {
-        map.addLayer({
-          id: 'buildings-fill-layer',
-          type: 'fill',
-          source: 'buildings-src',
-          paint: {
-            'fill-color': ['get', 'statusColor'],
-            'fill-opacity': 0.72
-          }
-        });
-      }
-
-      map.addLayer({
-        id: 'buildings-line-layer',
-        type: 'line',
-        source: 'buildings-src',
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': [
-            'case',
-            ['boolean', ['get', 'isSelected'], false],
-            4.0,
-            1.5
-          ]
-        }
-      });
-
-      // Click handler
-      const selectBuildingAtFeature = (e: any) => {
-        if (drawMode !== 'NONE') return;
-        if (!e.features || e.features.length === 0) return;
-        const bId = e.features[0].properties?.id;
-        const targetBuilding = buildings.find(b => b.id === bId);
-        if (targetBuilding) onSelectBuilding(targetBuilding);
-      };
-
-      map.on('click', 'buildings-extrusion-layer', selectBuildingAtFeature);
-      map.on('click', 'buildings-fill-layer', selectBuildingAtFeature);
-
-      // Cursor pointer
-      const setPointer = () => { if (drawMode === 'NONE') map.getCanvas().style.cursor = 'pointer'; };
-      const resetPointer = () => { if (drawMode === 'NONE') map.getCanvas().style.cursor = ''; };
-
-      map.on('mouseenter', 'buildings-extrusion-layer', setPointer);
-      map.on('mouseleave', 'buildings-extrusion-layer', resetPointer);
-      map.on('mouseenter', 'buildings-fill-layer', setPointer);
-      map.on('mouseleave', 'buildings-fill-layer', resetPointer);
-    }
-  };
-
-  useEffect(() => {
-    refreshGeoJsonLayers();
-  }, [layers, buildings, apartments, zones, territories, selectedBuilding]);
 
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
 
-      {/* Interactive Drawing Instructions Bar (Floating Top) */}
+      {/* Drawing Instructions Banner (Anchored at Top under Search) */}
       {drawMode !== 'NONE' && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-40 max-w-[92vw] w-auto">
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-teal-500/50 shadow-2xl text-xs text-slate-100">
-            {drawMode === 'DRAW_BUILDING_BOX' ? (
+        <div className="absolute top-28 sm:top-24 left-1/2 -translate-x-1/2 z-40 max-w-[94vw] w-auto">
+          <div className="flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-slate-900/98 backdrop-blur-xl border border-teal-500/60 shadow-2xl text-xs text-slate-100">
+            {drawMode === 'DRAW_BUILDING_BOX' || drawMode === 'DRAW_ZONE_BOX' ? (
               <>
                 <Box className="w-4 h-4 text-teal-400 animate-pulse flex-shrink-0" />
-                <span>
+                <span className="font-medium">
                   {drawingPoints.length === 0 
-                    ? '1. Haz clic en la primera esquina del edificio en el mapa' 
-                    : '2. Haz clic en la esquina opuesta para completar el cuadro'}
+                    ? '1. Toca la primera esquina sobre el mapa' 
+                    : '2. Mueve y toca la esquina opuesta para cerrar el cuadro'}
                 </span>
               </>
             ) : (
               <>
                 <Edit3 className="w-4 h-4 text-teal-400 animate-pulse flex-shrink-0" />
-                <span>
-                  {drawMode === 'DRAW_ZONE' ? 'Dibujar Residencial / Zona' : 'Dibujar Edificio'}:
-                  {drawingPoints.length === 0
-                    ? ' Haz clic para colocar el primer punto'
-                    : ` ${drawingPoints.length} puntos marcados. Haz clic en más esquinas.`}
+                <span className="font-medium">
+                  {drawingPoints.length === 0 
+                    ? 'Toca para marcar el primer vértice' 
+                    : `${drawingPoints.length} vértices. Toca para agregar más.`}
                 </span>
               </>
             )}
 
-            {/* Undo button */}
-            {drawingPoints.length > 0 && drawMode !== 'DRAW_BUILDING_BOX' && (
+            {drawingPoints.length > 0 && !drawMode.includes('BOX') && (
               <button
-                onClick={handleUndoPoint}
-                className="ml-2 p-1 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300"
-                title="Deshacer último punto"
+                onClick={() => setDrawingPoints(prev => prev.slice(0, -1))}
+                className="p-1 rounded-md bg-slate-800 text-slate-300"
+                title="Deshacer vértice"
               >
                 <Undo className="w-3.5 h-3.5" />
               </button>
             )}
 
-            {/* Finish Polygon */}
-            {drawingPoints.length >= 3 && (
+            {drawingPoints.length >= 3 && !drawMode.includes('BOX') && (
               <button
                 onClick={handleFinishPolygon}
-                className="ml-2 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-white font-semibold transition-all shadow-md shadow-teal-900/40"
+                className="flex items-center gap-1 px-3 py-1 rounded-xl bg-teal-600 hover:bg-teal-500 text-white font-bold transition-all shadow-md"
               >
                 <Check className="w-3.5 h-3.5" />
-                <span>Finalizar</span>
+                <span>Cerrar</span>
               </button>
             )}
 
-            {/* Cancel Button */}
             <button
               onClick={() => {
                 setDrawingPoints([]);
+                setCursorCoord(null);
                 onCancelDrawing();
               }}
-              className="ml-1 p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
-              title="Cancelar dibujo"
+              className="p-1 rounded-lg text-slate-400 hover:text-white"
             >
               <X className="w-4 h-4" />
             </button>
