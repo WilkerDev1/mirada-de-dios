@@ -3,7 +3,7 @@
 > **"Simple para el usuario. Estructurado para el sistema. Geográfico en su representación. Histórico en sus datos. Offline por diseño."**
 
 [![Vercel Deployment](https://img.shields.io/badge/Vercel-Live%20Web%20App-black?logo=vercel)](https://territorymanager.vercel.app)
-[![Android Build](https://img.shields.io/badge/Android-APK%20Ready-brightgreen?logo=android)](https://github.com/WilkerDev1/mirada-de-dios/releases)
+[![Android Build](https://img.shields.io/badge/Android-APK%20Ready-brightgreen?logo=android)](https://github.com/WilkerDev1/territorymanager/releases)
 [![MapLibre GL](https://img.shields.io/badge/Engine-MapLibre%20GL%20JS-blue?logo=webgl)](https://maplibre.org/)
 [![Capacitor](https://img.shields.io/badge/Mobile-Capacitor%208-1199EE?logo=capacitor)](https://capacitorjs.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)

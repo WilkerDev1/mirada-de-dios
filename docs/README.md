@@ -48,7 +48,7 @@ npm run deploy
 
 La versión web está desplegada y disponible públicamente en Vercel:
 - **URL de Producción:** [https://territorymanager.vercel.app](https://territorymanager.vercel.app)
-- **Repositorio Conectado:** [WilkerDev1/mirada-de-dios](https://github.com/WilkerDev1/mirada-de-dios)
+- **Repositorio Conectado:** [WilkerDev1/territorymanager](https://github.com/WilkerDev1/territorymanager)
 
 
 ## 🎯 Dataset Base Precargado
