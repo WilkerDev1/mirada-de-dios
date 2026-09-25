@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
+  db,
   initDatabase, 
   getTerritories, 
   getZones, 
@@ -127,6 +128,31 @@ export const App: React.FC = () => {
     setTimeout(() => setToastMessage(null), 4000);
   };
 
+  const loadAllData = async (targetTerritoryId?: string) => {
+    // 1. Load all territories
+    const allTerrs = await getTerritories();
+    setTerritories(allTerrs);
+
+    // 2. Load ALL zones across the entire map
+    const allZones = await getZones();
+    setZones(allZones);
+
+    // 3. Load ALL buildings across the entire map so everything drawn is immediately visible!
+    const allBuildings = await getBuildings();
+    setBuildings(allBuildings);
+
+    // 4. Load all apartments
+    const allApts = await db.apartments.toArray();
+    setApartments(allApts.filter((a: Apartment) => !a.archivedAt));
+
+    // 5. Calculate coverage metrics
+    const terrId = targetTerritoryId || activeTerritory?.id || allTerrs[0]?.id;
+    if (terrId) {
+      const cov = await calculateCoverage(terrId);
+      setMetrics(cov);
+    }
+  };
+
   useEffect(() => {
     async function loadData() {
       await initDatabase();
@@ -134,9 +160,11 @@ export const App: React.FC = () => {
       setTerritories(terrs);
 
       if (terrs.length > 0) {
-        const initialTerr = terrs[0]; // SD-01
+        const initialTerr = terrs[0];
         setActiveTerritory(initialTerr);
-        await loadTerritoryData(initialTerr.id);
+        await loadAllData(initialTerr.id);
+      } else {
+        await loadAllData();
       }
 
       const pending = await getPendingSyncCount();
@@ -145,30 +173,12 @@ export const App: React.FC = () => {
     loadData();
   }, []);
 
-  const loadTerritoryData = async (territoryId: string) => {
-    const tZones = await getZones(territoryId);
-    setZones(tZones);
-
-    const tBuildings = await getBuildings(territoryId);
-    setBuildings(tBuildings);
-
-    const allApts: Apartment[] = [];
-    for (const b of tBuildings) {
-      const apts = await getApartments(b.id);
-      allApts.push(...apts);
-    }
-    setApartments(allApts);
-
-    const cov = await calculateCoverage(territoryId);
-    setMetrics(cov);
-  };
-
   const handleSelectTerritory = async (t: Territory) => {
     setActiveTerritory(t);
     setSelectedTerritory(t);
     setSelectedBuilding(null);
     setSelectedZone(null);
-    await loadTerritoryData(t.id);
+    await loadAllData(t.id);
     setFlyToTarget({
       center: t.center,
       zoom: 15.5,
@@ -226,16 +236,14 @@ export const App: React.FC = () => {
       setSelectedBuildingVisits(vists);
     }
 
-    if (activeTerritory) {
-      await loadTerritoryData(activeTerritory.id);
-    }
+    await loadAllData();
 
     const pending = await getPendingSyncCount();
     setPendingSyncCount(pending);
     showToast('✓ Visita registrada');
   };
 
-  // Google Maps Style Fast Drawing Creation
+  // Google Maps Style Fast Drawing Creation: instant save without opening modals!
   const handleCompleteDrawing = async (polygon: number[][][], mode: DrawMode) => {
     setDrawMode('NONE');
 
@@ -250,19 +258,16 @@ export const App: React.FC = () => {
     const center: [number, number] = [sumLon / ring.length, sumLat / ring.length];
 
     if (mode === 'DRAW_BUILDING_BOX' || mode === 'DRAW_BUILDING_POLYGON') {
-      if (!activeTerritory) return;
-      const defaultZone = selectedZone || zones[0];
-      if (!defaultZone) {
-        showToast('Crea primero un residencial o zona');
-        return;
-      }
-
       const newBuildingNumber = buildings.length + 1;
+      const assignedZoneId = selectedZone?.id || zones[0]?.id || 'zone-general';
+      const assignedTerritoryId = activeTerritory?.id || 'terr-general';
+      const zoneName = selectedZone?.name || zones[0]?.name || 'Área Libre';
+
       const newBuilding = await createBuildingWithApartments({
-        zoneId: defaultZone.id,
-        territoryId: activeTerritory.id,
+        zoneId: assignedZoneId,
+        territoryId: assignedTerritoryId,
         name: `Edificio #${newBuildingNumber}`,
-        address: `Sector ${defaultZone.name}`,
+        address: `Sector ${zoneName}`,
         center,
         polygonCoordinates: polygon,
         buildingType: 'RESIDENTIAL_BUILDING',
@@ -272,18 +277,22 @@ export const App: React.FC = () => {
         color: '#0d9488'
       });
 
-      await loadTerritoryData(activeTerritory.id);
+      await loadAllData();
       const pending = await getPendingSyncCount();
       setPendingSyncCount(pending);
 
-      handleSelectBuilding(newBuilding);
-      showToast('✓ Edificio creado. Personaliza su nombre o color en el panel inferior.');
+      // Do NOT open any modal or sheet automatically - keep screen clear for rapid creation!
+      setSelectedBuilding(null);
+      setSelectedZone(null);
+      setSelectedTerritory(null);
+      showToast(`✓ Edificio #${newBuildingNumber} creado. Tócalo para editar.`);
 
     } else if (mode === 'DRAW_ZONE_BOX' || mode === 'DRAW_ZONE_POLYGON') {
-      if (!activeTerritory) return;
       const zoneNum = zones.length + 1;
+      const assignedTerritoryId = activeTerritory?.id || 'terr-general';
+
       const newZone = await createZone({
-        territoryId: activeTerritory.id,
+        territoryId: assignedTerritoryId,
         name: `Residencial #${zoneNum}`,
         code: `RES-0${zoneNum}`,
         color: '#6366f1',
@@ -291,9 +300,12 @@ export const App: React.FC = () => {
         polygonCoordinates: polygon
       });
 
-      await loadTerritoryData(activeTerritory.id);
-      handleSelectZone(newZone);
-      showToast('✓ Residencial creado. Ajusta su nombre y color en el panel inferior.');
+      await loadAllData();
+      // Do NOT open any modal or sheet automatically!
+      setSelectedBuilding(null);
+      setSelectedZone(null);
+      setSelectedTerritory(null);
+      showToast(`✓ Residencial #${zoneNum} creado. Tócalo para editar.`);
 
     } else if (mode === 'DRAW_TERRITORY_POLYGON') {
       const terrCode = `SD-0${territories.length + 1}`;
@@ -305,18 +317,19 @@ export const App: React.FC = () => {
         center,
         polygonCoordinates: polygon
       });
-      const terrs = await getTerritories();
-      setTerritories(terrs);
-      setActiveTerritory(newTerr);
-      setSelectedTerritory(newTerr);
-      await loadTerritoryData(newTerr.id);
-      showToast(`✓ Territorio ${terrCode} creado con éxito.`);
+
+      await loadAllData();
+      // Do NOT open any modal or sheet automatically!
+      setSelectedBuilding(null);
+      setSelectedZone(null);
+      setSelectedTerritory(null);
+      showToast(`✓ Territorio ${terrCode} creado. Tócalo para editar.`);
     }
   };
 
   const handleUpdateBuilding = async (buildingId: string, updates: Partial<Building>) => {
     await updateBuilding(buildingId, updates);
-    if (activeTerritory) await loadTerritoryData(activeTerritory.id);
+    await loadAllData();
     if (selectedBuilding && selectedBuilding.id === buildingId) {
       setSelectedBuilding(prev => prev ? { ...prev, ...updates } : null);
     }
@@ -325,14 +338,14 @@ export const App: React.FC = () => {
 
   const handleDeleteBuilding = async (buildingId: string) => {
     await deleteBuilding(buildingId);
-    if (activeTerritory) await loadTerritoryData(activeTerritory.id);
+    await loadAllData();
     setSelectedBuilding(null);
     showToast('✓ Edificio eliminado');
   };
 
   const handleUpdateZone = async (zoneId: string, updates: Partial<Zone>) => {
     await updateZone(zoneId, updates);
-    if (activeTerritory) await loadTerritoryData(activeTerritory.id);
+    await loadAllData();
     if (selectedZone && selectedZone.id === zoneId) {
       setSelectedZone(prev => prev ? { ...prev, ...updates } : null);
     }
@@ -341,18 +354,14 @@ export const App: React.FC = () => {
 
   const handleDeleteZone = async (zoneId: string) => {
     await deleteZone(zoneId);
-    if (activeTerritory) await loadTerritoryData(activeTerritory.id);
+    await loadAllData();
     setSelectedZone(null);
     showToast('✓ Residencial eliminado');
   };
 
   const handleUpdateTerritory = async (territoryId: string, updates: Partial<Territory>) => {
     await updateTerritory(territoryId, updates);
-    const terrs = await getTerritories();
-    setTerritories(terrs);
-    if (activeTerritory && activeTerritory.id === territoryId) {
-      setActiveTerritory(prev => prev ? { ...prev, ...updates } : null);
-    }
+    await loadAllData();
     if (selectedTerritory && selectedTerritory.id === territoryId) {
       setSelectedTerritory(prev => prev ? { ...prev, ...updates } : null);
     }
@@ -366,11 +375,11 @@ export const App: React.FC = () => {
     if (activeTerritory && activeTerritory.id === territoryId) {
       if (terrs.length > 0) {
         setActiveTerritory(terrs[0]);
-        await loadTerritoryData(terrs[0].id);
       } else {
         setActiveTerritory(null);
       }
     }
+    await loadAllData();
     setSelectedTerritory(null);
     showToast('✓ Territorio eliminado');
   };

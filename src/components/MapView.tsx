@@ -76,6 +76,30 @@ export const MapView: React.FC<MapViewProps> = ({
   const [isSPenDetected, setIsSPenDetected] = useState(false);
   const [sPenPressure, setSPenPressure] = useState(0);
 
+  // Mutable refs to prevent stale closures in MapLibre event listeners
+  const buildingsRef = useRef(buildings);
+  buildingsRef.current = buildings;
+
+  const zonesRef = useRef(zones);
+  zonesRef.current = zones;
+
+  const territoriesRef = useRef(territories);
+  territoriesRef.current = territories;
+
+  const drawModeRef = useRef(drawMode);
+  drawModeRef.current = drawMode;
+
+  const onSelectBuildingRef = useRef(onSelectBuilding);
+  onSelectBuildingRef.current = onSelectBuilding;
+
+  const onSelectZoneRef = useRef(onSelectZone);
+  onSelectZoneRef.current = onSelectZone;
+
+  const onSelectTerritoryRef = useRef(onSelectTerritory);
+  onSelectTerritoryRef.current = onSelectTerritory;
+
+  const pointerDownPosRef = useRef<{ x: number; y: number; pt: [number, number] } | null>(null);
+
   const triggerHaptic = () => {
     try {
       Haptics.impact({ style: ImpactStyle.Light });
@@ -265,14 +289,23 @@ export const MapView: React.FC<MapViewProps> = ({
             }
           });
 
-          map.on('click', 'territories-fill-layer', (e) => {
-            if (drawMode !== 'NONE') return;
-            if (appMode === 'TERRITORIES') {
-              const tId = e.features?.[0]?.properties?.id;
-              const targetTerr = territories.find(t => t.id === tId);
-              if (targetTerr && onSelectTerritory) onSelectTerritory(targetTerr);
+          map.on('click', 'territories-fill-layer', (e: any) => {
+            if (drawModeRef.current !== 'NONE') return;
+            const m = mapRef.current;
+            if (m) {
+              const topFeatures = m.queryRenderedFeatures(e.point, {
+                layers: ['buildings-fill-layer', 'buildings-extrusion-layer', 'zones-fill-layer'].filter(l => !!m.getLayer(l))
+              });
+              if (topFeatures && topFeatures.length > 0) return;
+            }
+            const tId = e.features?.[0]?.properties?.id;
+            const targetTerr = territoriesRef.current.find(t => t.id === tId);
+            if (targetTerr && onSelectTerritoryRef.current) {
+              onSelectTerritoryRef.current(targetTerr);
             }
           });
+          map.on('mouseenter', 'territories-fill-layer', () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = 'pointer'; });
+          map.on('mouseleave', 'territories-fill-layer', () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = ''; });
         } else {
           (map.getSource('territories-src') as any).setData(territoriesGeoJson);
           map.setPaintProperty('territories-fill-layer', 'fill-color', ['coalesce', ['get', 'color'], '#0284c7']);
@@ -283,6 +316,10 @@ export const MapView: React.FC<MapViewProps> = ({
       } catch (err) {
         console.warn('Error syncing territories layer:', err);
       }
+    }
+    if (map.getLayer('territories-fill-layer')) {
+      map.setLayoutProperty('territories-fill-layer', 'visibility', layers.territorial ? 'visible' : 'none');
+      map.setLayoutProperty('territories-line-layer', 'visibility', layers.territorial ? 'visible' : 'none');
     }
 
     // 2. Zones / Residenciales Layer
@@ -336,14 +373,23 @@ export const MapView: React.FC<MapViewProps> = ({
             }
           });
 
-          map.on('click', 'zones-fill-layer', (e) => {
-            if (drawMode !== 'NONE') return;
-            if (appMode === 'ZONES') {
-              const zId = e.features?.[0]?.properties?.id;
-              const targetZone = zones.find(z => z.id === zId);
-              if (targetZone) onSelectZone(targetZone);
+          map.on('click', 'zones-fill-layer', (e: any) => {
+            if (drawModeRef.current !== 'NONE') return;
+            const m = mapRef.current;
+            if (m) {
+              const topFeatures = m.queryRenderedFeatures(e.point, {
+                layers: ['buildings-fill-layer', 'buildings-extrusion-layer'].filter(l => !!m.getLayer(l))
+              });
+              if (topFeatures && topFeatures.length > 0) return;
+            }
+            const zId = e.features?.[0]?.properties?.id;
+            const targetZone = zonesRef.current.find(z => z.id === zId);
+            if (targetZone && onSelectZoneRef.current) {
+              onSelectZoneRef.current(targetZone);
             }
           });
+          map.on('mouseenter', 'zones-fill-layer', () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = 'pointer'; });
+          map.on('mouseleave', 'zones-fill-layer', () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = ''; });
         } else {
           (map.getSource('zones-src') as any).setData(zonesGeoJson);
           map.setPaintProperty('zones-fill-layer', 'fill-color', ['coalesce', ['get', 'color'], '#0d9488']);
@@ -354,6 +400,10 @@ export const MapView: React.FC<MapViewProps> = ({
       } catch (err) {
         console.warn('Error syncing zones layer:', err);
       }
+    }
+    if (map.getLayer('zones-fill-layer')) {
+      map.setLayoutProperty('zones-fill-layer', 'visibility', layers.territorial ? 'visible' : 'none');
+      map.setLayoutProperty('zones-line-layer', 'visibility', layers.territorial ? 'visible' : 'none');
     }
 
     // 3. Buildings Layer (Crystal-clear visibility on Google Streets!)
@@ -450,19 +500,21 @@ export const MapView: React.FC<MapViewProps> = ({
             }
           });
 
-          // Click handler
+          // Click handler with fresh ref
           const onBuildingClick = (e: any) => {
-            if (drawMode !== 'NONE') return;
+            if (drawModeRef.current !== 'NONE') return;
             const bId = e.features?.[0]?.properties?.id;
-            const target = buildings.find(b => b.id === bId);
-            if (target) onSelectBuilding(target);
+            const target = buildingsRef.current.find(b => b.id === bId);
+            if (target && onSelectBuildingRef.current) {
+              onSelectBuildingRef.current(target);
+            }
           };
 
           map.on('click', 'buildings-fill-layer', onBuildingClick);
           map.on('click', 'buildings-extrusion-layer', onBuildingClick);
 
-          const setPtr = () => { if (drawMode === 'NONE') map.getCanvas().style.cursor = 'pointer'; };
-          const resetPtr = () => { if (drawMode === 'NONE') map.getCanvas().style.cursor = ''; };
+          const setPtr = () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = 'pointer'; };
+          const resetPtr = () => { if (drawModeRef.current === 'NONE') map.getCanvas().style.cursor = ''; };
           map.on('mouseenter', 'buildings-fill-layer', setPtr);
           map.on('mouseleave', 'buildings-fill-layer', resetPtr);
         } else {
@@ -475,6 +527,13 @@ export const MapView: React.FC<MapViewProps> = ({
         }
       } catch (err) {
         console.warn('Error syncing buildings layer:', err);
+      }
+    }
+    if (map.getLayer('buildings-fill-layer')) {
+      map.setLayoutProperty('buildings-fill-layer', 'visibility', layers.buildings ? 'visible' : 'none');
+      map.setLayoutProperty('buildings-line-layer', 'visibility', layers.buildings ? 'visible' : 'none');
+      if (map.getLayer('buildings-extrusion-layer')) {
+        map.setLayoutProperty('buildings-extrusion-layer', 'visibility', layers.buildings ? 'visible' : 'none');
       }
     }
   }, [layers, appMode, territories, activeTerritory, zones, buildings, apartments, selectedBuilding, selectedZone, drawMode, is3D, onSelectBuilding, onSelectZone, onSelectTerritory]);
@@ -604,6 +663,7 @@ export const MapView: React.FC<MapViewProps> = ({
     const y = e.clientY - rect.top;
     const lngLat = map.unproject([x, y]);
     const clickPt: [number, number] = [lngLat.lng, lngLat.lat];
+    pointerDownPosRef.current = { x, y, pt: clickPt };
 
     triggerHaptic();
 
@@ -632,6 +692,7 @@ export const MapView: React.FC<MapViewProps> = ({
         setDrawingPoints([]);
         setActivePointer(null);
         setIsNearFirstPoint(false);
+        pointerDownPosRef.current = null;
         onCompleteDrawing(boxPolygon, drawMode);
       }
       return;
@@ -647,6 +708,47 @@ export const MapView: React.FC<MapViewProps> = ({
     // Append new vertex
     setDrawingPoints(prev => [...prev, clickPt]);
     setActivePointer({ x, y, lng: clickPt[0], lat: clickPt[1] });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (drawMode === 'NONE') return;
+    const map = mapRef.current;
+    if (!map || !pointerDownPosRef.current) return;
+
+    if (drawMode === 'DRAW_BUILDING_BOX' || drawMode === 'DRAW_ZONE_BOX') {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const dx = Math.abs(x - pointerDownPosRef.current.x);
+      const dy = Math.abs(y - pointerDownPosRef.current.y);
+
+      // If dragged across > 20px, finish the box immediately from release!
+      if (dx > 20 || dy > 20) {
+        const lngLat = map.unproject([x, y]);
+        const p1 = pointerDownPosRef.current.pt;
+        const p2: [number, number] = [lngLat.lng, lngLat.lat];
+        const minLon = Math.min(p1[0], p2[0]);
+        const maxLon = Math.max(p1[0], p2[0]);
+        const minLat = Math.min(p1[1], p2[1]);
+        const maxLat = Math.max(p1[1], p2[1]);
+
+        const boxPolygon: number[][][] = [[
+          [minLon, minLat],
+          [maxLon, minLat],
+          [maxLon, maxLat],
+          [minLon, maxLat],
+          [minLon, minLat]
+        ]];
+
+        triggerHaptic();
+        setDrawingPoints([]);
+        setActivePointer(null);
+        setIsNearFirstPoint(false);
+        pointerDownPosRef.current = null;
+        onCompleteDrawing(boxPolygon, drawMode);
+        return;
+      }
+    }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -725,6 +827,7 @@ export const MapView: React.FC<MapViewProps> = ({
         <div
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
           className="absolute inset-0 w-full h-full z-30 cursor-crosshair"
           style={{ touchAction: 'none' }}
         >

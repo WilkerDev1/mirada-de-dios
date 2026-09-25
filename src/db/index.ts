@@ -81,8 +81,11 @@ export async function getTerritories(congregationId?: string): Promise<Territory
   return await db.territories.toArray();
 }
 
-export async function getZones(territoryId: string): Promise<Zone[]> {
-  return await db.zones.where('territoryId').equals(territoryId).toArray();
+export async function getZones(territoryId?: string): Promise<Zone[]> {
+  if (territoryId) {
+    return await db.zones.where('territoryId').equals(territoryId).toArray();
+  }
+  return await db.zones.toArray();
 }
 
 export async function getBuildings(territoryId?: string, zoneId?: string): Promise<Building[]> {
@@ -174,8 +177,8 @@ export async function recordVisit(params: {
 }
 
 export async function createBuildingWithApartments(data: {
-  zoneId: string;
-  territoryId: string;
+  zoneId?: string;
+  territoryId?: string;
   name: string;
   address: string;
   center: [number, number];
@@ -194,8 +197,8 @@ export async function createBuildingWithApartments(data: {
 
   const newBuilding: Building = {
     id: buildingId,
-    zoneId: data.zoneId,
-    territoryId: data.territoryId,
+    zoneId: data.zoneId || 'zone-general',
+    territoryId: data.territoryId || 'terr-general',
     name: data.name,
     address: data.address,
     center: data.center,
@@ -248,7 +251,7 @@ export async function createBuildingWithApartments(data: {
 }
 
 export async function createZone(data: {
-  territoryId: string;
+  territoryId?: string;
   name: string;
   code: string;
   color?: string;
@@ -262,7 +265,7 @@ export async function createZone(data: {
 
   const newZone: Zone = {
     id: zoneId,
-    territoryId: data.territoryId,
+    territoryId: data.territoryId || 'terr-general',
     name: data.name,
     code: data.code,
     color: data.color || '#14b8a6',
