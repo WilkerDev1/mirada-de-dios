@@ -68,6 +68,26 @@ const extractPolygonPoints = (geom: any): [number, number][] => {
   return result;
 };
 
+// Screen-space point in polygon ray-casting test
+const isPointInScreenPolygon = (px: number, py: number, points: { x: number; y: number }[]): boolean => {
+  if (!points || points.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    const xi = points[i].x, yi = points[i].y;
+    const xj = points[j].x, yj = points[j].y;
+    const intersect = ((yi > py) !== (yj > py)) &&
+      (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
+// Check if touch point is near a center badge with a generous finger touch radius
+const isNearCenter = (px: number, py: number, center: { x: number; y: number } | null, radius: number): boolean => {
+  if (!center) return false;
+  return Math.hypot(px - center.x, py - center.y) <= radius;
+};
+
 // Earth distance calculation in meters
 const getDistanceMeters = (p1: [number, number], p2: [number, number]): number => {
   const R = 6371000;
@@ -118,6 +138,23 @@ export const MapView: React.FC<MapViewProps> = ({
 
   // Samsung S-Pen / Stylus state
   const [isSPenDetected, setIsSPenDetected] = useState(false);
+
+  // Mutable refs for entity selection in MapLibre tap listener
+  const renderedBuildingsRef = useRef<any[]>([]);
+  const renderedZonesRef = useRef<any[]>([]);
+  const renderedTerritoriesRef = useRef<any[]>([]);
+
+  const onSelectBuildingRef = useRef(onSelectBuilding);
+  onSelectBuildingRef.current = onSelectBuilding;
+
+  const onSelectZoneRef = useRef(onSelectZone);
+  onSelectZoneRef.current = onSelectZone;
+
+  const onSelectTerritoryRef = useRef(onSelectTerritory);
+  onSelectTerritoryRef.current = onSelectTerritory;
+
+  const drawModeRef = useRef(drawMode);
+  drawModeRef.current = drawMode;
 
   const triggerHaptic = () => {
     try {
@@ -216,7 +253,145 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   };
 
-  // Initialize MapLibre Canvas
+  // -------------------------------------------------------------
+  // SUPERIMPOSED REACTIVE GRAPHICS OVERLAY ENGINE
+  // -------------------------------------------------------------
+
+  // 1. Territories Render Items
+  const renderedTerritories = useMemo(() => {
+    const map = mapRef.current;
+    if (!map || !layers.territorial) return [];
+
+    const list = territories.map(t => {
+      const ring = extractPolygonPoints(t.geometry);
+      if (ring.length < 3) return null;
+
+      const screenPts = ring.map(pt => map.project(pt));
+      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+      let centerPx: { x: number; y: number } | null = null;
+      if (t.center && !isNaN(t.center[0]) && !isNaN(t.center[1])) {
+        centerPx = map.project(t.center);
+      }
+
+      const color = t.color || '#0284c7';
+      const isActive = activeTerritory?.id === t.id;
+
+      return {
+        territory: t,
+        screenPts,
+        pointsAttr,
+        centerPx,
+        color,
+        isActive
+      };
+    }).filter(Boolean);
+
+    renderedTerritoriesRef.current = list;
+    return list;
+  }, [mapRef.current, territories, layers.territorial, activeTerritory, mapTransformSeq]);
+
+  // 2. Zones / Residenciales Render Items
+  const renderedZones = useMemo(() => {
+    const map = mapRef.current;
+    if (!map || !layers.territorial) return [];
+
+    const list = zones.map(z => {
+      const ring = extractPolygonPoints(z.geometry);
+      if (ring.length < 3) return null;
+
+      const screenPts = ring.map(pt => map.project(pt));
+      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+      let centerPx: { x: number; y: number } | null = null;
+      if (z.center && !isNaN(z.center[0]) && !isNaN(z.center[1])) {
+        centerPx = map.project(z.center);
+      } else {
+        const sumX = screenPts.reduce((acc, p) => acc + p.x, 0);
+        const sumY = screenPts.reduce((acc, p) => acc + p.y, 0);
+        centerPx = { x: sumX / screenPts.length, y: sumY / screenPts.length };
+      }
+
+      const color = z.color || '#6366f1';
+      const isSelected = selectedZone?.id === z.id;
+
+      return {
+        zone: z,
+        screenPts,
+        pointsAttr,
+        centerPx,
+        color,
+        isSelected
+      };
+    }).filter(Boolean);
+
+    renderedZonesRef.current = list;
+    return list;
+  }, [mapRef.current, zones, layers.territorial, selectedZone, mapTransformSeq]);
+
+  // 3. Buildings Render Items (Guaranteed 100% visible everywhere)
+  const renderedBuildings = useMemo(() => {
+    const map = mapRef.current;
+    if (!map || !layers.buildings) return [];
+
+    const list = buildings.map(b => {
+      const ring = extractPolygonPoints(b.geometry);
+      if (ring.length < 3) return null;
+
+      const screenPts = ring.map(pt => map.project(pt));
+      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+      // Center Pixel
+      let centerPx: { x: number; y: number } | null = null;
+      if (b.center && !isNaN(b.center[0]) && !isNaN(b.center[1])) {
+        centerPx = map.project(b.center);
+      } else {
+        const sumX = screenPts.reduce((acc, p) => acc + p.x, 0);
+        const sumY = screenPts.reduce((acc, p) => acc + p.y, 0);
+        centerPx = { x: sumX / screenPts.length, y: sumY / screenPts.length };
+      }
+
+      // Color calculation: custom color or preaching status
+      let color = b.color || '#0d9488';
+      if (!b.color && layers.preachingStatus) {
+        const bApts = apartments.filter(a => a.buildingId === b.id && !a.archivedAt);
+        if (bApts.length > 0) {
+          if (bApts.some(a => a.calculatedStatus === 'ACCESS_PROBLEM')) color = '#ef4444';
+          else if (bApts.every(a => a.calculatedStatus === 'CONTACTED')) color = '#10b981';
+          else if (bApts.some(a => a.calculatedStatus === 'CONTACTED')) color = '#22c55e';
+          else if (bApts.some(a => a.calculatedStatus === 'NO_ANSWER')) color = '#f59e0b';
+        }
+      }
+
+      const isSelected = selectedBuilding?.id === b.id;
+
+      // 3D Isometric Extrusion calculations when tilted
+      let roofPts: { x: number; y: number }[] = [];
+      let roofPointsAttr = '';
+      if (currentPitch > 10) {
+        const pitchFactor = Math.sin((currentPitch * Math.PI) / 180);
+        const elevationPx = Math.max(8, b.floors * 4.5 * pitchFactor);
+        roofPts = screenPts.map(p => ({ x: p.x, y: p.y - elevationPx }));
+        roofPointsAttr = roofPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      }
+
+      return {
+        building: b,
+        screenPts,
+        pointsAttr,
+        centerPx,
+        color,
+        isSelected,
+        roofPts,
+        roofPointsAttr
+      };
+    }).filter(Boolean);
+
+    renderedBuildingsRef.current = list;
+    return list;
+  }, [mapRef.current, buildings, layers.buildings, layers.preachingStatus, apartments, selectedBuilding, currentPitch, mapTransformSeq]);
+
+  // Initialize MapLibre Canvas with Native Gesture & Tap Disambiguation
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
@@ -270,6 +445,65 @@ export const MapView: React.FC<MapViewProps> = ({
     map.on('pitch', updateViewport);
     map.on('resize', updateViewport);
     map.on('load', updateViewport);
+
+    // Native Tap-to-Select Listener: allows 100% unrestricted touch movement everywhere!
+    map.on('click', (e) => {
+      if (drawModeRef.current !== 'NONE') return;
+      const { x, y } = e.point;
+
+      // 1. Check Buildings first (highest priority)
+      const hitBuilding = renderedBuildingsRef.current.find(b => {
+        if (!b) return false;
+        if (isPointInScreenPolygon(x, y, b.screenPts)) return true;
+        if (isNearCenter(x, y, b.centerPx, 24)) return true;
+        if (b.roofPts && b.roofPts.length > 0 && isPointInScreenPolygon(x, y, b.roofPts)) return true;
+        return false;
+      });
+
+      if (hitBuilding && onSelectBuildingRef.current) {
+        triggerHaptic();
+        onSelectBuildingRef.current(hitBuilding.building);
+        return;
+      }
+
+      // 2. Check Zones second
+      const hitZone = renderedZonesRef.current.find(z => {
+        if (!z) return false;
+        if (isNearCenter(x, y, z.centerPx, 32)) return true;
+        if (isPointInScreenPolygon(x, y, z.screenPts)) return true;
+        return false;
+      });
+
+      if (hitZone && onSelectZoneRef.current) {
+        triggerHaptic();
+        onSelectZoneRef.current(hitZone.zone);
+        return;
+      }
+
+      // 3. Check Territories third
+      const hitTerr = renderedTerritoriesRef.current.find(t => {
+        if (!t) return false;
+        if (isNearCenter(x, y, t.centerPx, 32)) return true;
+        if (isPointInScreenPolygon(x, y, t.screenPts)) return true;
+        return false;
+      });
+
+      if (hitTerr && onSelectTerritoryRef.current) {
+        triggerHaptic();
+        onSelectTerritoryRef.current(hitTerr.territory);
+        return;
+      }
+    });
+
+    // Pointer cursor on desktop hover
+    map.on('mousemove', (e) => {
+      if (drawModeRef.current !== 'NONE') return;
+      const { x, y } = e.point;
+      const isHovering = 
+        renderedBuildingsRef.current.some(b => b && (isPointInScreenPolygon(x, y, b.screenPts) || isNearCenter(x, y, b.centerPx, 24))) ||
+        renderedZonesRef.current.some(z => z && (isNearCenter(x, y, z.centerPx, 32)));
+      map.getCanvas().style.cursor = isHovering ? 'pointer' : '';
+    });
 
     return () => {
       if (rafId !== null) cancelAnimationFrame(rafId);
@@ -329,135 +563,6 @@ export const MapView: React.FC<MapViewProps> = ({
       map.doubleClickZoom.enable();
     }
   }, [drawMode]);
-
-  // -------------------------------------------------------------
-  // SUPERIMPOSED REACTIVE GRAPHICS OVERLAY ENGINE
-  // -------------------------------------------------------------
-
-  // 1. Territories Render Items
-  const renderedTerritories = useMemo(() => {
-    const map = mapRef.current;
-    if (!map || !layers.territorial) return [];
-
-    return territories.map(t => {
-      const ring = extractPolygonPoints(t.geometry);
-      if (ring.length < 3) return null;
-
-      const screenPts = ring.map(pt => map.project(pt));
-      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-
-      let centerPx: { x: number; y: number } | null = null;
-      if (t.center && !isNaN(t.center[0]) && !isNaN(t.center[1])) {
-        centerPx = map.project(t.center);
-      }
-
-      const color = t.color || '#0284c7';
-      const isActive = activeTerritory?.id === t.id;
-
-      return {
-        territory: t,
-        screenPts,
-        pointsAttr,
-        centerPx,
-        color,
-        isActive
-      };
-    }).filter(Boolean);
-  }, [mapRef.current, territories, layers.territorial, activeTerritory, mapTransformSeq]);
-
-  // 2. Zones / Residenciales Render Items
-  const renderedZones = useMemo(() => {
-    const map = mapRef.current;
-    if (!map || !layers.territorial) return [];
-
-    return zones.map(z => {
-      const ring = extractPolygonPoints(z.geometry);
-      if (ring.length < 3) return null;
-
-      const screenPts = ring.map(pt => map.project(pt));
-      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-
-      let centerPx: { x: number; y: number } | null = null;
-      if (z.center && !isNaN(z.center[0]) && !isNaN(z.center[1])) {
-        centerPx = map.project(z.center);
-      } else {
-        const sumX = screenPts.reduce((acc, p) => acc + p.x, 0);
-        const sumY = screenPts.reduce((acc, p) => acc + p.y, 0);
-        centerPx = { x: sumX / screenPts.length, y: sumY / screenPts.length };
-      }
-
-      const color = z.color || '#6366f1';
-      const isSelected = selectedZone?.id === z.id;
-
-      return {
-        zone: z,
-        screenPts,
-        pointsAttr,
-        centerPx,
-        color,
-        isSelected
-      };
-    }).filter(Boolean);
-  }, [mapRef.current, zones, layers.territorial, selectedZone, mapTransformSeq]);
-
-  // 3. Buildings Render Items (Guaranteed 100% visible everywhere)
-  const renderedBuildings = useMemo(() => {
-    const map = mapRef.current;
-    if (!map || !layers.buildings) return [];
-
-    return buildings.map(b => {
-      const ring = extractPolygonPoints(b.geometry);
-      if (ring.length < 3) return null;
-
-      const screenPts = ring.map(pt => map.project(pt));
-      const pointsAttr = screenPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-
-      // Center Pixel
-      let centerPx: { x: number; y: number } | null = null;
-      if (b.center && !isNaN(b.center[0]) && !isNaN(b.center[1])) {
-        centerPx = map.project(b.center);
-      } else {
-        const sumX = screenPts.reduce((acc, p) => acc + p.x, 0);
-        const sumY = screenPts.reduce((acc, p) => acc + p.y, 0);
-        centerPx = { x: sumX / screenPts.length, y: sumY / screenPts.length };
-      }
-
-      // Color calculation: custom color or preaching status
-      let color = b.color || '#0d9488';
-      if (!b.color && layers.preachingStatus) {
-        const bApts = apartments.filter(a => a.buildingId === b.id && !a.archivedAt);
-        if (bApts.length > 0) {
-          if (bApts.some(a => a.calculatedStatus === 'ACCESS_PROBLEM')) color = '#ef4444';
-          else if (bApts.every(a => a.calculatedStatus === 'CONTACTED')) color = '#10b981';
-          else if (bApts.some(a => a.calculatedStatus === 'CONTACTED')) color = '#22c55e';
-          else if (bApts.some(a => a.calculatedStatus === 'NO_ANSWER')) color = '#f59e0b';
-        }
-      }
-
-      const isSelected = selectedBuilding?.id === b.id;
-
-      // 3D Isometric Extrusion calculations when tilted
-      let roofPts: { x: number; y: number }[] = [];
-      let roofPointsAttr = '';
-      if (currentPitch > 10) {
-        const pitchFactor = Math.sin((currentPitch * Math.PI) / 180);
-        const elevationPx = Math.max(8, b.floors * 4.5 * pitchFactor);
-        roofPts = screenPts.map(p => ({ x: p.x, y: p.y - elevationPx }));
-        roofPointsAttr = roofPts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-      }
-
-      return {
-        building: b,
-        screenPts,
-        pointsAttr,
-        centerPx,
-        color,
-        isSelected,
-        roofPts,
-        roofPointsAttr
-      };
-    }).filter(Boolean);
-  }, [mapRef.current, buildings, layers.buildings, layers.preachingStatus, apartments, selectedBuilding, currentPitch, mapTransformSeq]);
 
   // -------------------------------------------------------------
   // AutoCAD-Style Interactive Drafting Engine (Touch, S-Pen & Mouse)
@@ -630,10 +735,10 @@ export const MapView: React.FC<MapViewProps> = ({
 
   return (
     <div className="relative w-full h-full select-none" style={{ touchAction: 'none' }}>
-      {/* 1. MapLibre Canvas Container (Base Map) */}
+      {/* 1. MapLibre Canvas Container (Base Map: Unrestricted 100% Touch Screen) */}
       <div ref={mapContainer} className="absolute inset-0 w-full h-full" />
 
-      {/* 2. SUPERIMPOSED VECTOR GRAPHICS OVERLAY (Directly rendered on top of the map) */}
+      {/* 2. SUPERIMPOSED VECTOR GRAPHICS OVERLAY (Passes all gestures cleanly through to MapLibre!) */}
       <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-hidden z-10">
         <defs>
           <filter id="svg-elevation-shadow" x="-30%" y="-30%" width="160%" height="160%">
@@ -641,17 +746,9 @@ export const MapView: React.FC<MapViewProps> = ({
           </filter>
         </defs>
 
-        {/* Level A: Territories */}
+        {/* Level A: Territories (Visual Only, 100% Touch-Through) */}
         {renderedTerritories.map(item => item && (
-          <g
-            key={item.territory.id}
-            style={{ pointerEvents: drawMode === 'NONE' ? 'auto' : 'none', cursor: 'pointer' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              triggerHaptic();
-              if (onSelectTerritory) onSelectTerritory(item.territory);
-            }}
-          >
+          <g key={item.territory.id} style={{ pointerEvents: 'none' }}>
             <polygon
               points={item.pointsAttr}
               fill={item.color}
@@ -677,17 +774,9 @@ export const MapView: React.FC<MapViewProps> = ({
           </g>
         ))}
 
-        {/* Level B: Zones / Residenciales */}
+        {/* Level B: Zones / Residenciales (Visual Only, 100% Touch-Through) */}
         {renderedZones.map(item => item && (
-          <g
-            key={item.zone.id}
-            style={{ pointerEvents: drawMode === 'NONE' ? 'auto' : 'none', cursor: 'pointer' }}
-            onClick={(e) => {
-              e.stopPropagation();
-              triggerHaptic();
-              onSelectZone(item.zone);
-            }}
-          >
+          <g key={item.zone.id} style={{ pointerEvents: 'none' }}>
             <polygon
               points={item.pointsAttr}
               fill={item.color}
@@ -725,7 +814,7 @@ export const MapView: React.FC<MapViewProps> = ({
           </g>
         ))}
 
-        {/* Level C: Buildings & Houses (Crystal-Clear Footprint + CAD Nodes + Badge) */}
+        {/* Level C: Buildings & Houses (Visual Only, 100% Touch-Through) */}
         {renderedBuildings.map(item => {
           if (!item) return null;
           const is3DActive = currentPitch > 10 && item.roofPts.length > 0;
@@ -733,12 +822,7 @@ export const MapView: React.FC<MapViewProps> = ({
           return (
             <g
               key={item.building.id}
-              style={{ pointerEvents: drawMode === 'NONE' ? 'auto' : 'none', cursor: 'pointer' }}
-              onClick={(e) => {
-                e.stopPropagation();
-                triggerHaptic();
-                onSelectBuilding(item.building);
-              }}
+              style={{ pointerEvents: 'none' }}
               filter="url(#svg-elevation-shadow)"
               className="transition-opacity duration-150"
             >
@@ -787,7 +871,6 @@ export const MapView: React.FC<MapViewProps> = ({
                   stroke={item.isSelected ? '#ffffff' : item.color}
                   strokeWidth={item.isSelected ? 4 : 2.4}
                   strokeLinejoin="round"
-                  className="transition-all hover:fill-opacity-80"
                 />
               )}
 
